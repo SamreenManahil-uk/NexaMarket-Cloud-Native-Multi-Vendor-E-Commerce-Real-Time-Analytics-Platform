@@ -1,0 +1,41 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --require tsx/cjs --test tests/*.test.cjs",
+    "db:check": "tsx src/scripts/check-db.ts",
+    "db:migrate": "tsx src/scripts/migrate.ts",
+    "test:db": "node --require tsx/cjs --test tests/schema.integration.cjs",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "test:catalogue": "node --require tsx/cjs --test tests/catalogue.integration.cjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "kafkajs": "^2.2.4",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

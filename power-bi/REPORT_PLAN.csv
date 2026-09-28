@@ -1,0 +1,11 @@
+Page,Visual,Purpose
+Executive Overview,KPI Cards,"Order value; orders; units sold; AOV; customers"
+Executive Overview,Line Chart,"Daily marketplace performance"
+Sales & Products,Bar Chart,"Top products by sales value"
+Sales & Products,Table,"Product performance and units sold"
+Customer Intelligence,Table,"RFM customer metrics"
+Customer Intelligence,Donut Chart,"Customer segment distribution"
+Customer Intelligence,Bar Chart,"Customer value by segment"
+Demand Forecast,Line Chart,"Historical demand and forecast"
+Inventory,Table,"Product stock snapshot"
+Inventory,Bar Chart,"Inventory by product"

@@ -1,0 +1,111 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { authStore } from "../stores/auth";
+import { commerceApi } from "../services/commerce";
+import type { WishlistItem } from "../types/commerce";
+import { trackClickstream } from "../services/clickstream";
+
+const items = ref<WishlistItem[]>([]);
+const loading = ref(true);
+const error = ref("");
+const busyProduct = ref<string | null>(null);
+
+async function loadWishlist() {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await commerceApi.wishlist(token);
+    items.value = response.data ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load wishlist.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function removeItem(productId: string) {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    busyProduct.value = productId;
+    error.value = "";
+    await commerceApi.removeWishlistItem(token, productId);
+    await loadWishlist();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to remove this product.";
+  } finally {
+    busyProduct.value = null;
+  }
+}
+
+async function moveToCart(item: WishlistItem) {
+  const token = authStore.state.token;
+  if (!token || item.stock <= 0) return;
+
+  try {
+    busyProduct.value = item.product_id;
+    error.value = "";
+    await commerceApi.addToCart(token, item.product_id, 1);
+    void trackClickstream("ADD_TO_CART", { productId: item.product_id, path: "/wishlist" });
+    await commerceApi.removeWishlistItem(token, item.product_id);
+    await loadWishlist();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to move this product to your cart.";
+  } finally {
+    busyProduct.value = null;
+  }
+}
+
+onMounted(loadWishlist);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <div class="commerce-heading">
+      <span>SAVED FOR LATER</span>
+      <h1>Wishlist</h1>
+      <p>Your saved NexaMarket products in one place.</p>
+    </div>
+
+    <p v-if="loading">Loading your wishlist...</p>
+    <p v-else-if="error" class="commerce-error" role="alert">{{ error }}</p>
+
+    <div v-else-if="!items.length" class="commerce-empty">
+      <h2>Your wishlist is empty</h2>
+      <p>Save products you would like to revisit.</p>
+      <RouterLink to="/#catalogue">Discover products</RouterLink>
+    </div>
+
+    <section v-else class="commerce-list">
+      <article v-for="item in items" :key="item.item_id" class="commerce-item">
+        <RouterLink :to="`/products/${item.product_id}`" class="commerce-product">
+          <div class="commerce-product-image">
+            <img v-if="item.image_url" :src="item.image_url" :alt="item.name" />
+            <span v-else aria-hidden="true">N</span>
+          </div>
+
+          <div>
+            <strong>{{ item.name }}</strong>
+            <p>{{ item.seller_name }}</p>
+            <small>{{ item.stock > 0 ? `${item.stock} available` : "Out of stock" }}</small>
+          </div>
+        </RouterLink>
+
+        <strong>£{{ Number(item.price).toFixed(2) }}</strong>
+
+        <div class="commerce-item-actions">
+          <button type="button" :disabled="item.stock <= 0 || busyProduct === item.product_id" @click="moveToCart(item)">
+            {{ item.stock <= 0 ? "Out of stock" : "Move to cart" }}
+          </button>
+          <button type="button" class="commerce-remove" :disabled="busyProduct === item.product_id" @click="removeItem(item.product_id)">
+            Remove
+          </button>
+        </div>
+      </article>
+    </section>
+  </main>
+</template>

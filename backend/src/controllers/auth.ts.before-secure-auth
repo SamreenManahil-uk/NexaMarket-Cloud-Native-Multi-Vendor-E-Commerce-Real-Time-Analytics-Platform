@@ -1,0 +1,70 @@
+import type { NextFunction, Request, Response } from "express";
+import type { AuthenticatedRequest } from "../middleware/auth.js";
+import {
+  AuthError,
+  getPublicUserById,
+  login,
+  registerCustomer,
+} from "../services/auth.js";
+
+function handleAuthError(
+  error: unknown,
+  next: NextFunction,
+): void {
+  if (error instanceof AuthError) {
+    next(error);
+    return;
+  }
+
+  next(error);
+}
+
+export async function registerController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await registerCustomer(req.body ?? {});
+    res.status(201).json(result);
+  } catch (error) {
+    handleAuthError(error, next);
+  }
+}
+
+export async function loginController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await login(req.body ?? {});
+    res.status(200).json(result);
+  } catch (error) {
+    handleAuthError(error, next);
+  }
+}
+
+export async function meController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!req.auth) {
+      res.status(401).json({ error: "Authentication required." });
+      return;
+    }
+
+    const user = await getPublicUserById(req.auth.sub);
+
+    if (!user) {
+      res.status(401).json({ error: "Authenticated user no longer exists." });
+      return;
+    }
+
+    res.status(200).json({ user });
+  } catch (error) {
+    next(error);
+  }
+}

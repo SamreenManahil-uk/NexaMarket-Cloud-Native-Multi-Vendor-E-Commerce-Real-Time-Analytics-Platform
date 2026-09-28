@@ -1,0 +1,162 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
+import { authStore } from "../stores/auth";
+import { commerceApi } from "../services/commerce";
+import { ordersApi } from "../services/orders";
+import { useRouter } from "vue-router";
+import type { CartItem, CartData } from "../types/commerce";
+
+const router = useRouter();
+const items = ref<CartItem[]>([]);
+const loading = ref(true);
+const error = ref("");
+const busyItem = ref<string | null>(null);
+const checkingOut = ref(false);
+
+const subtotal = computed(() =>
+  items.value.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0),
+);
+
+function extractItems(data: CartData | CartItem[]): CartItem[] {
+  return Array.isArray(data) ? data : data.items ?? [];
+}
+
+async function loadCart() {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await commerceApi.cart(token);
+    items.value = extractItems(response.data);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load cart.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function changeQuantity(item: CartItem, quantity: number) {
+  const token = authStore.state.token;
+  if (!token || quantity < 1 || quantity > item.stock) return;
+
+  try {
+    busyItem.value = item.item_id;
+    error.value = "";
+    await commerceApi.updateCartItem(token, item.item_id, quantity);
+    await loadCart();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to update quantity.";
+  } finally {
+    busyItem.value = null;
+  }
+}
+
+async function removeItem(item: CartItem) {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    busyItem.value = item.item_id;
+    error.value = "";
+    await commerceApi.removeCartItem(token, item.item_id);
+    await loadCart();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to remove item.";
+  } finally {
+    busyItem.value = null;
+  }
+}
+
+async function checkout() {
+  const token = authStore.state.token;
+  if (!token || items.value.length === 0) return;
+
+  try {
+    checkingOut.value = true;
+    error.value = "";
+
+    const response = await ordersApi.checkout(token);
+
+    await router.push({
+      name: "order-confirmation",
+      params: { orderId: response.data.id },
+    });
+  } catch (err) {
+    error.value =
+      err instanceof Error
+        ? err.message
+        : "Unable to complete checkout.";
+  } finally {
+    checkingOut.value = false;
+  }
+}
+
+onMounted(loadCart);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <div class="commerce-heading">
+      <span>YOUR SHOPPING BAG</span>
+      <h1>Cart</h1>
+      <p>Review your products and quantities before checkout.</p>
+    </div>
+
+    <p v-if="loading">Loading your cart...</p>
+    <p v-else-if="error" class="commerce-error" role="alert">{{ error }}</p>
+
+    <div v-else-if="!items.length" class="commerce-empty">
+      <h2>Your cart is empty</h2>
+      <p>Explore the marketplace and add products you want to buy.</p>
+      <RouterLink to="/#catalogue">Explore products</RouterLink>
+    </div>
+
+    <div v-else class="commerce-layout">
+      <section class="commerce-list">
+        <article v-for="item in items" :key="item.item_id" class="commerce-item">
+          <RouterLink :to="`/products/${item.product_id}`" class="commerce-product">
+            <div class="commerce-product-image">
+              <img v-if="item.image_url" :src="item.image_url" :alt="item.name" />
+              <span v-else aria-hidden="true">N</span>
+            </div>
+
+            <div>
+              <strong>{{ item.name }}</strong>
+              <p>{{ item.seller_name }}</p>
+              <small>{{ item.stock }} available</small>
+            </div>
+          </RouterLink>
+
+          <div class="commerce-quantity" aria-label="Quantity controls">
+            <button type="button" :disabled="item.quantity <= 1 || busyItem === item.item_id" @click="changeQuantity(item, item.quantity - 1)">−</button>
+            <span>{{ item.quantity }}</span>
+            <button type="button" :disabled="item.quantity >= item.stock || busyItem === item.item_id" @click="changeQuantity(item, item.quantity + 1)">+</button>
+          </div>
+
+          <strong>£{{ (Number(item.price) * item.quantity).toFixed(2) }}</strong>
+
+          <button class="commerce-remove" type="button" :disabled="busyItem === item.item_id" @click="removeItem(item)">
+            Remove
+          </button>
+        </article>
+      </section>
+
+      <aside class="commerce-summary">
+        <span>ORDER SUMMARY</span>
+        <div><span>Items</span><strong>{{ items.reduce((sum, item) => sum + item.quantity, 0) }}</strong></div>
+        <div><span>Subtotal</span><strong>£{{ subtotal.toFixed(2) }}</strong></div>
+        <p>Final totals and inventory are validated by the server during checkout.</p>
+        <button
+          type="button"
+          :disabled="checkingOut || !items.length"
+          @click="checkout"
+        >
+          {{ checkingOut ? "Creating order..." : "Complete simulated checkout" }}
+        </button>
+        <small>No real card or payment is processed.</small>
+      </aside>
+    </div>
+  </main>
+</template>

@@ -1,0 +1,57 @@
+import {
+  findProductsForAssistant,
+  type AiCatalogueProduct,
+} from "../repositories/aiCatalogue.js";
+
+import {
+  interpretShoppingQuery,
+} from "../ai/queryInterpreter.js";
+
+export interface AiAssistantResult {
+  message: string;
+  products: AiCatalogueProduct[];
+  grounded: true;
+  source: "NEXAMARKET_CATALOGUE";
+}
+
+export async function askNexaAssistant(
+  rawMessage: string,
+): Promise<AiAssistantResult> {
+  const intent = interpretShoppingQuery(rawMessage);
+
+  const products = await findProductsForAssistant({
+    search: intent.search || undefined,
+    minPrice: intent.minPrice,
+    maxPrice: intent.maxPrice,
+    inStockOnly: true,
+    limit: intent.limit,
+  });
+
+  if (products.length === 0) {
+    return {
+      message:
+        "I could not find a matching in-stock product in the current NexaMarket catalogue.",
+      products: [],
+      grounded: true,
+      source: "NEXAMARKET_CATALOGUE",
+    };
+  }
+
+  const topMatches = products
+    .slice(0, 3)
+    .map(
+      (product) =>
+        `${product.name} (£${Number(product.price).toFixed(2)})`,
+    )
+    .join(", ");
+
+  return {
+    message:
+      `I found ${products.length} matching in-stock ` +
+      `product${products.length === 1 ? "" : "s"}. ` +
+      `Top matches: ${topMatches}.`,
+    products,
+    grounded: true,
+    source: "NEXAMARKET_CATALOGUE",
+  };
+}

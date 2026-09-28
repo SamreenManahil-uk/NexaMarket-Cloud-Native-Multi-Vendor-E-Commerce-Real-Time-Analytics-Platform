@@ -1,0 +1,7 @@
+customer_id,email,first_name,last_name,recency_days,frequency,monetary,r_score,f_score,m_score,rfm_score
+4b6daa1e-9602-4d9a-9027-dfc2b3220f65,commerce.test.1790342658@nexamarket.dev,Commerce,Tester,3,2,62.99,1,3,4,134
+b3400cad-5654-4794-bf6a-b31873f24320,samreenmanahil9@gmail.com,Samreen,Manahil,0,3,47.99,4,4,3,443
+95368280-8307-48f1-9472-85852437f704,day2.events.1790425019@nexamarket.dev,Day2,Tester,2,1,34.99,2,2,3,223
+716ae874-0692-4761-9fb8-b1ef3d86de61,checkout-1790447737@nexamarket.dev,Checkout,Tester,2,1,24.99,2,2,2,222
+cde68929-02af-4b1a-bf48-001e5153001b,day2.events.1790424918@nexamarket.dev,Event,Tester,2,1,6.25,2,2,1,221
+e16228d1-a634-4ba2-8868-b3ea45e91009,day2test1790425110@nexamarket.dev,Day2,Tester,2,1,6.25,2,2,1,221

@@ -1,0 +1,46 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
+import { authStore } from "../stores/auth";
+import { ordersApi } from "../services/orders";
+import type { Order } from "../types/orders";
+
+const route = useRoute();
+const order = ref<Order | null>(null);
+const loading = ref(true);
+const error = ref("");
+
+async function loadOrder() {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    const response = await ordersApi.get(token, String(route.params.orderId));
+    order.value = response.data;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load order.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadOrder);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <p v-if="loading">Confirming your order...</p>
+    <p v-else-if="error" class="commerce-error">{{ error }}</p>
+
+    <section v-else-if="order" class="commerce-empty">
+      <span>ORDER CREATED</span>
+      <h1>Thank you for your order.</h1>
+      <p>Order #{{ order.id.slice(0, 8).toUpperCase() }}</p>
+      <strong>£{{ Number(order.totalAmount).toFixed(2) }}</strong>
+      <p>Status: {{ order.status }}</p>
+      <p>This was a simulated checkout. No real card or payment was processed.</p>
+      <RouterLink :to="`/orders/${order.id}`">View order details</RouterLink>
+      <RouterLink to="/#catalogue">Continue shopping</RouterLink>
+    </section>
+  </main>
+</template>

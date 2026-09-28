@@ -1,0 +1,32 @@
+export interface CartProduct {
+  id: string;
+  name: string;
+  price: string | number;
+}
+
+export interface CartItem {
+  id: string;
+  productId: string;
+  quantity: number;
+  product?: CartProduct;
+  name?: string;
+  price?: string | number;
+}
+
+export interface CartResponse {
+  data?: CartItem[];
+  items?: CartItem[];
+}
+
+export interface WishlistItem {
+  id?: string;
+  productId: string;
+  product?: CartProduct;
+  name?: string;
+  price?: string | number;
+}
+
+export interface WishlistResponse {
+  data?: WishlistItem[];
+  items?: WishlistItem[];
+}

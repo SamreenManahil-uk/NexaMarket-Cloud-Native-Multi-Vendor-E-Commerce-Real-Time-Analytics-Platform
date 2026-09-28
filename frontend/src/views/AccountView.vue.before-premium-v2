@@ -1,0 +1,64 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useRouter } from "vue-router";
+import { authStore } from "../stores/auth";
+
+const router = useRouter();
+
+const user = computed(() => authStore.state.user);
+
+async function logout(): Promise<void> {
+  authStore.logout();
+  await router.push("/");
+}
+</script>
+
+<template>
+  <section v-if="user" class="account-page">
+    <div class="account-hero">
+      <div>
+        <p class="eyebrow">My NexaMarket</p>
+        <h1>Welcome, {{ user.firstName }}.</h1>
+        <p>
+          Your secure customer space for shopping, orders and marketplace
+          activity.
+        </p>
+      </div>
+
+      <div class="account-avatar" aria-hidden="true">
+        {{ user.firstName.charAt(0) }}{{ user.lastName.charAt(0) }}
+      </div>
+    </div>
+
+    <div class="account-grid">
+      <article class="account-profile-card">
+        <p class="eyebrow">Account details</p>
+        <h2>{{ user.firstName }} {{ user.lastName }}</h2>
+        <p>{{ user.email }}</p>
+        <span class="account-role">{{ user.role }}</span>
+      </article>
+
+      <article class="account-feature-card">
+        <span aria-hidden="true">▱</span>
+        <h2>Orders</h2>
+        <p>
+          Your real order history will appear here once checkout is connected.
+        </p>
+        <span class="development-label">Next commerce stage</span>
+      </article>
+
+      <article class="account-feature-card">
+        <span aria-hidden="true">♡</span>
+        <h2>Wishlist</h2>
+        <p>
+          Save products to this account once wishlist functionality is enabled.
+        </p>
+        <span class="development-label">Next commerce stage</span>
+      </article>
+    </div>
+
+    <button type="button" class="account-logout" @click="logout">
+      Sign out
+    </button>
+  </section>
+</template>

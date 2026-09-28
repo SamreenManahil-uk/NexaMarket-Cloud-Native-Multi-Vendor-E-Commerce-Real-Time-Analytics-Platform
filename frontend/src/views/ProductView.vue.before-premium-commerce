@@ -1,0 +1,139 @@
+<script setup lang="ts">
+import { ref, watch, onBeforeUnmount } from "vue";
+import { useRoute } from "vue-router";
+import { api, ApiError, errorMessage } from "../services/api";
+import { trackClickstream } from "../services/clickstream";
+import type { Product } from "../types/catalogue";
+import ProductImage from "../components/ProductImage.vue";
+import StatusPanel from "../components/StatusPanel.vue";
+import ProductSkeleton from "../components/ProductSkeleton.vue";
+const route = useRoute();
+const product = ref<Product | null>(null),
+  loading = ref(true),
+  error = ref(""),
+  missing = ref(false);
+let request: AbortController | undefined;
+async function load() {
+  request?.abort();
+  const current = (request = new AbortController());
+  product.value = null;
+  error.value = "";
+  missing.value = false;
+  loading.value = true;
+  const id = String(route.params.id);
+  if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+    error.value = "This product address is invalid.";
+    missing.value = true;
+    loading.value = false;
+    return;
+  }
+  try {
+    product.value = (await api.product(id, current.signal)).data;
+    void trackClickstream("PRODUCT_VIEW", {
+      productId: id,
+      path: route.fullPath,
+    });
+  } catch (e) {
+    if (!current.signal.aborted) {
+      error.value = errorMessage(e);
+      missing.value = e instanceof ApiError && e.status === 404;
+    }
+  } finally {
+    if (!current.signal.aborted) loading.value = false;
+  }
+}
+watch(() => route.params.id, load, { immediate: true });
+onBeforeUnmount(() => request?.abort());
+</script>
+<template>
+  <div class="detail-page">
+    <RouterLink :to="{ path: '/', query: route.query }" class="back-link"
+      >← Back to marketplace</RouterLink
+    >
+    <div :aria-busy="loading">
+      <ProductSkeleton v-if="loading" detail />
+      <StatusPanel
+        v-else-if="error"
+        :title="
+          missing
+            ? 'This discovery is unavailable'
+            : 'We couldn’t load this product'
+        "
+        :message="error"
+        error
+        :retry="!missing"
+        @retry="load"
+        ><RouterLink :to="{ path: '/', query: route.query }"
+          >Explore the marketplace →</RouterLink
+        ></StatusPanel
+      >
+      <article v-else-if="product" class="product-detail">
+        <div class="detail-gallery">
+          <ProductImage
+            :src="product.image_url"
+            :name="product.name"
+            :category="product.category.slug"
+            eager
+          />
+          <div class="gallery-note">
+            <span aria-hidden="true">✦</span>
+            <p>
+              A closer look at your next discovery.<small
+                >Placeholder illustrations are labelled; actual product
+                appearance may differ.</small
+              >
+            </p>
+          </div>
+        </div>
+        <div class="detail-copy">
+          <RouterLink
+            :to="{ path: '/', query: { category: product.category.slug } }"
+            class="category-badge detail-category"
+            >{{ product.category.name }} ↗</RouterLink
+          >
+          <h1>{{ product.name }}</h1>
+          <p class="detail-store">
+            <span class="store-icon" aria-hidden="true">▦</span
+            ><span><small>Sold by</small>{{ product.seller.store_name }}</span>
+          </p>
+          <div class="detail-purchase">
+            <p class="detail-price">{{ product.price }}</p>
+            <p class="muted price-note">
+              Price as listed · currency not supplied by the catalogue
+            </p>
+            <div class="inventory-line">
+              <span
+                class="stock"
+                :class="{ unavailable: product.available_quantity === 0 }"
+                ><span aria-hidden="true">●</span>
+                {{
+                  product.available_quantity > 0
+                    ? "In stock"
+                    : "Currently out of stock"
+                }}</span
+              ><span>{{ product.available_quantity }} units available</span>
+            </div>
+            <button class="cart-placeholder" disabled>
+              Cart coming soon <span aria-hidden="true">↗</span>
+            </button>
+            <p class="browse-note">
+              Discover now. Shopping features are on the way.
+            </p>
+          </div>
+          <section
+            class="description-section"
+            aria-labelledby="description-heading"
+          >
+            <h2 id="description-heading">The details</h2>
+            <p class="description">
+              {{
+                product.description ||
+                "No description has been provided for this product."
+              }}
+            </p>
+          </section>
+        </div>
+      </article>
+    </div>
+  </div>
+</template>

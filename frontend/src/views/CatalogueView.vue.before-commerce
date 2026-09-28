@@ -1,0 +1,268 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { trackClickstream } from "../services/clickstream";
+import { api, errorMessage } from "../services/api";
+import type { Category, Product } from "../types/catalogue";
+
+const router = useRouter();
+const route = useRoute();
+const searchQuery = ref(String(route.query.search ?? ""));
+
+const categories = ref<Category[]>([]);
+const products = ref<Product[]>([]);
+const loading = ref(true);
+const error = ref("");
+
+const categoryIcons = ["💻", "📱", "🎧", "🏠", "🎮", "⌚", "📷", "⚡"];
+
+const visibleProducts = computed(() => products.value.slice(0, 5));
+
+async function loadHome() {
+  const controller = new AbortController();
+
+  try {
+    loading.value = true;
+    error.value = "";
+
+    const [categoryResponse, productResponse] = await Promise.all([
+      api.categories(controller.signal),
+      api.products(1, 8, String(route.query.category ?? ""), String(route.query.search ?? ""), controller.signal),
+    ]);
+
+    categories.value = categoryResponse.data ?? [];
+    products.value = productResponse.data ?? [];
+  } catch (err) {
+    console.error(err);
+    error.value = errorMessage(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function submitSearch() {
+  const query = searchQuery.value.trim();
+  console.log("NEXA_SEARCH_SUBMIT", query);
+  if (!query) return;
+  await router.push({ path: "/", query: { search: query }, hash: "#catalogue" });
+  void trackClickstream("SEARCH", { searchQuery: query, path: route.fullPath });
+  await loadHome();
+}
+
+function openProduct(id: string) {
+  router.push(`/products/${id}`);
+}
+
+function categoryName(category: Category) {
+  return category.name;
+}
+
+function productPrice(product: Product) {
+  return `£${Number(product.price).toFixed(2)}`;
+}
+
+watch(() => [route.query.search, route.query.category], () => { searchQuery.value = String(route.query.search ?? ""); void loadHome(); });
+
+onMounted(loadHome);
+</script>
+
+<template>
+  <section class="nx-home">
+
+    <!-- HERO -->
+    <section class="nx-hero">
+      <div class="nx-hero-copy">
+        <span class="nx-eyebrow">NEW SEASON · NEW DISCOVERIES</span>
+
+        <h1>
+          Discover smarter
+          <br />
+          shopping
+        </h1>
+
+        <p>
+          Explore electronics, fashion, home essentials and more —
+          all in one place.
+        </p>
+
+
+        <div class="nx-hero-actions">
+          <button class="nx-primary" @click="$router.push('/#catalogue')">
+            Shop Now <span>→</span>
+          </button>
+
+          <button class="nx-secondary" @click="$router.push('/#catalogue')">
+            Explore Products
+          </button>
+        </div>
+      </div>
+
+      <div class="nx-hero-art" aria-hidden="true">
+        <div class="nx-orb nx-orb-one"></div>
+        <div class="nx-orb nx-orb-two"></div>
+
+        <div class="nx-device nx-laptop">
+          <div class="nx-screen">
+            <div class="nx-screen-glow"></div>
+          </div>
+          <div class="nx-keyboard"></div>
+        </div>
+
+        <div class="nx-device nx-phone">
+          <div class="nx-phone-screen">
+            <span>NX</span>
+          </div>
+        </div>
+
+        <div class="nx-device nx-watch">
+          <div class="nx-watch-face">10:09</div>
+        </div>
+
+        <div class="nx-headphones">
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section class="nx-section">
+      <div class="nx-section-heading">
+        <div>
+          <span class="nx-small-label">SHOP BY CATEGORY</span>
+          <h2>What are you looking for?</h2>
+        </div>
+
+        <span class="nx-view-all">View all →</span>
+      </div>
+
+      <div v-if="categories.length" class="nx-category-row">
+        <button
+          v-for="(category, index) in categories.slice(0, 8)"
+          :key="category.id"
+          class="nx-category"
+          @click="$router.push(`/?category=${encodeURIComponent(category.slug)}`)"
+        >
+          <span class="nx-category-icon">
+            {{ categoryIcons[index % categoryIcons.length] }}
+          </span>
+          <strong>{{ categoryName(category) }}</strong>
+        </button>
+      </div>
+
+      <div v-else class="nx-category-row">
+        <div v-for="i in 6" :key="i" class="nx-category skeleton">
+          <span class="nx-category-icon"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROMO CARDS -->
+    <section class="nx-promos">
+      <article class="nx-promo nx-promo-purple">
+        <div>
+          <span>PREMIUM TECH</span>
+          <h3>For every<br />moment.</h3>
+          <p>Discover products made for your everyday.</p>
+          <button @click="$router.push('/#catalogue')">Shop now →</button>
+        </div>
+        <div class="nx-promo-object nx-audio">◉</div>
+      </article>
+
+      <article class="nx-promo nx-promo-warm">
+        <div>
+          <span>UPGRADE YOUR SPACE</span>
+          <h3>Better products.<br />Better living.</h3>
+          <p>Find something new for your home.</p>
+          <button @click="$router.push('/#catalogue')">Explore →</button>
+        </div>
+        <div class="nx-promo-object nx-home-object">▱</div>
+      </article>
+    </section>
+
+    <!-- PRODUCTS -->
+    <section id="catalogue" class="nx-section nx-products-section">
+      <div class="nx-section-heading">
+        <div>
+          <span class="nx-small-label">POPULAR RIGHT NOW</span>
+          <h2>Trending Products</h2>
+          <p>Discover some of the marketplace's latest products.</p>
+        </div>
+
+        <span class="nx-view-all">View all →</span>
+      </div>
+
+      <div v-if="error" class="nx-error">
+        {{ error }}
+      </div>
+
+      <div v-else-if="loading" class="nx-product-grid">
+        <div v-for="i in 5" :key="i" class="nx-product-card nx-loading-card">
+          <div class="nx-product-image skeleton"></div>
+          <div class="nx-product-info">
+            <div class="skeleton nx-line"></div>
+            <div class="skeleton nx-line short"></div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="visibleProducts.length" class="nx-product-grid">
+        <article
+          v-for="(product, index) in visibleProducts"
+          :key="product.id"
+          class="nx-product-card"
+          @click="openProduct(product.id)"
+        >
+          <div class="nx-product-image">
+
+            <button class="nx-heart" @click.stop>♡</button>
+
+            <div class="nx-product-placeholder"></div>
+          </div>
+
+          <div class="nx-product-info">
+            <p>{{ product.name }}</p>
+
+
+            <div class="nx-product-bottom">
+              <strong>{{ productPrice(product) }}</strong>
+              <button class="nx-view-product" @click.stop="openProduct(product.id)">View Product</button>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div v-else class="nx-empty">
+        No products are currently available.
+      </div>
+    </section>
+
+    <!-- TRUST STRIP -->
+    <section class="nx-trust">
+      <div>
+        <span>◇</span>
+        <strong>Quality Products</strong>
+        <small>Curated marketplace listings</small>
+      </div>
+
+      <div>
+        <span>⌁</span>
+        <strong>Secure Checkout</strong>
+        <small>Safe and protected payments</small>
+      </div>
+
+      <div>
+        <span>▱</span>
+        <strong>Fast Delivery</strong>
+        <small>Convenient shopping experience</small>
+      </div>
+
+      <div>
+        <span>◌</span>
+        <strong>24/7 Support</strong>
+        <small>We're here to help</small>
+      </div>
+    </section>
+
+  </section>
+</template>

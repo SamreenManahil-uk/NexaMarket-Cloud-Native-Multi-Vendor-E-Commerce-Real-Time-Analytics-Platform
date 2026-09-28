@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-09-28T02:14:16.902088+00:00",
+  "architecture": "Bronze/Silver/Gold medallion",
+  "engine": "Apache Spark / PySpark",
+  "bronze": {
+    "orders": 9,
+    "order_items": 9
+  },
+  "silver": {
+    "valid_orders": 9,
+    "valid_order_items": 9
+  },
+  "gold": {
+    "daily_sales_rows": 3,
+    "product_performance_rows": 5,
+    "customer_value_rows": 6
+  },
+  "note": "Order value represents simulated checkout orders, not settled payment revenue."
+}

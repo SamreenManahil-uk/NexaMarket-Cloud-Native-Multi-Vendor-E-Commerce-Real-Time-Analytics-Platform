@@ -1,0 +1,92 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import { authStore } from "../stores/auth";
+import { useRoute, useRouter } from "vue-router";
+import { trackClickstream } from "../services/clickstream";
+
+const user = computed(() => authStore.state.user);
+const router = useRouter();
+const route = useRoute();
+const searchQuery = ref(String(route.query.search ?? ""));
+
+async function submitSearch() {
+  const query = searchQuery.value.trim();
+  if (!query) return;
+  void trackClickstream("SEARCH", { searchQuery: query, path: `/?search=${encodeURIComponent(query)}#catalogue` });
+  await router.push({ path: "/", query: { search: query }, hash: "#catalogue" });
+}
+
+watch(() => route.query.search, (value) => {
+  searchQuery.value = String(value ?? "");
+});
+</script>
+
+<template>
+  <header class="site-header">
+    <div class="header-inner container">
+      <RouterLink to="/" class="brand" aria-label="NexaMarket home">
+        <span class="brand-mark" aria-hidden="true">n<span>✦</span></span>
+        Nexa<span class="brand-light">Market</span
+        ><span class="brand-dot">.</span>
+      </RouterLink>
+
+      <form class="search-preview" @submit.prevent="submitSearch">
+        <span aria-hidden="true">⌕</span>
+        <input
+          type="search"
+          aria-label="Search marketplace"
+          placeholder="Search products and categories"
+          v-model="searchQuery"
+        />
+        <button type="submit" class="search-submit">Search</button>
+      </form>
+
+      <div class="header-utilities">
+        <RouterLink
+          :to="user ? '/account' : '/auth'"
+          class="utility-button account-utility"
+          :aria-label="user ? `Account for ${user.firstName}` : 'Sign in'"
+        >
+          <span aria-hidden="true">◯</span>
+
+          <span v-if="user">
+            {{ user.firstName }}
+            <small>My account</small>
+          </span>
+
+          <span v-else>
+            Sign in
+            <small>My account</small>
+          </span>
+        </RouterLink>
+
+        <RouterLink :to="user ? '/wishlist' : '/auth?redirect=/wishlist'" class="utility-button" aria-label="Wishlist">
+          <span aria-hidden="true">♡</span>
+          <span>Wishlist<small>Saved items</small></span>
+        </RouterLink>
+
+        <RouterLink :to="user ? '/cart' : '/auth?redirect=/cart'" class="utility-button" aria-label="Cart">
+          <span aria-hidden="true">▱</span>
+          <span>Cart<small>Your bag</small></span>
+        </RouterLink>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <nav class="container" aria-label="Main navigation">
+        <RouterLink :to="{ path: '/', hash: '#categories' }">
+          <span aria-hidden="true">▦</span>
+          Shop by category
+        </RouterLink>
+
+        <RouterLink :to="{ path: '/', hash: '#catalogue' }">
+          Explore products <span aria-hidden="true">↗</span>
+        </RouterLink>
+
+        <span class="nav-note">
+          Everything you need. All in one marketplace.
+        </span>
+      </nav>
+    </div>
+  </header>
+</template>

@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-09-28T02:26:59.483170+00:00",
+  "source": "NexaMarket PostgreSQL transactional data",
+  "clustering": {
+    "method": "kmeans",
+    "model_trained": true,
+    "clusters": 4,
+    "silhouette_score": 0.5197,
+    "reason": null
+  },
+  "forecasting": {
+    "method": "historical_mean",
+    "model_trained": false,
+    "reason": "Fewer than 7 days of demand history; using a transparent historical-mean baseline.",
+    "history_days": 4,
+    "forecast_days": 7
+  },
+  "business_insights": {
+    "orders": {
+      "qualifying_orders": 9,
+      "order_value": 183.46,
+      "average_order_value": 20.38,
+      "units_sold": 10
+    },
+    "customers": {
+      "analysed_customers": 6,
+      "segments": {
+        "Promising": 2,
+        "Developing": 2,
+        "Loyal": 1,
+        "Champions": 1
+      }
+    },
+    "top_products": [
+      {
+        "product_id": "d1075001-0ac9-40b8-b054-a6779e1aaa38",
+        "product_name": "Premium Smart Watch",
+        "units_sold": 2,
+        "sales_value": 69.98
+      },
+      {
+        "product_id": "a06cdd8a-b0e5-4488-879e-9b485dd4ae5d",
+        "product_name": "Digital Air Fryer",
+        "units_sold": 2,
+        "sales_value": 49.98
+      },
+      {
+        "product_id": "de000000-0000-4000-8000-400000000009",
+        "product_name": "Wireless Earbuds",
+        "units_sold": 2,
+        "sales_value": 28.0
+      },
+      {
+        "product_id": "de000000-0000-4000-8000-400000000010",
+        "product_name": "Compact Wireless Earphones",
+        "units_sold": 2,
+        "sales_value": 23.0
+      },
+      {
+        "product_id": "de000000-0000-4000-8000-400000000003",
+        "product_name": "Premium Bluetooth Speaker",
+        "units_sold": 2,
+        "sales_value": 12.5
+      }
+    ],
+    "low_stock_products": [
+      {
+        "product_id": "de000000-0000-4000-8000-400000000008",
+        "name": "Luxury Freestanding Bathtub",
+        "stock": 0,
+        "category": "Lifestyle",
+        "seller": "Nexa Living Store"
+      }
+    ]
+  },
+  "limitations": [
+    "Checkout is simulated, therefore order value must not be described as settled payment revenue.",
+    "Customer segmentation quality depends on the number and diversity of qualifying customer orders.",
+    "Demand forecasting is a portfolio analytics demonstration and not a production demand guarantee."
+  ]
+}

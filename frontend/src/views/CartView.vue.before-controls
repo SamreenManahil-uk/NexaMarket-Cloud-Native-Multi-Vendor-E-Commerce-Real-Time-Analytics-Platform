@@ -1,0 +1,56 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { authStore } from "../stores/auth";
+import { commerceApi } from "../services/commerce";
+import type { CartItem } from "../types/commerce";
+
+const items = ref<CartItem[]>([]);
+const loading = ref(true);
+const error = ref("");
+
+async function loadCart() {
+  const token = authStore.state.token;
+  if (!token) return;
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await commerceApi.cart(token);
+    items.value = response.data ?? response.items ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load cart.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadCart);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <div class="commerce-heading">
+      <span>YOUR SHOPPING BAG</span>
+      <h1>Cart</h1>
+      <p>Review the products you have selected before checkout.</p>
+    </div>
+
+    <p v-if="loading">Loading your cart...</p>
+    <p v-else-if="error" class="commerce-error">{{ error }}</p>
+    <div v-else-if="!items.length" class="commerce-empty">
+      <h2>Your cart is empty</h2>
+      <p>Explore the marketplace and add products you want to buy.</p>
+      <RouterLink to="/#catalogue">Explore products</RouterLink>
+    </div>
+    <div v-else class="commerce-list">
+      <article v-for="item in items" :key="item.id" class="commerce-item">
+        <div>
+          <strong>{{ item.product?.name ?? item.name ?? "Product" }}</strong>
+          <p>Quantity: {{ item.quantity }}</p>
+        </div>
+        <strong v-if="item.product?.price ?? item.price">
+          £{{ Number(item.product?.price ?? item.price).toFixed(2) }}
+        </strong>
+      </article>
+    </div>
+  </main>
+</template>

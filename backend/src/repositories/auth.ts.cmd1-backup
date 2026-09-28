@@ -1,0 +1,419 @@
+import { pool } from "../db/index.js";
+import type {
+  AuthProvider,
+  UserRecord,
+  UserRole,
+} from "../types/auth.js";
+
+interface UserRow {
+  id: string;
+  email: string;
+  password_hash: string;
+  first_name: string;
+  last_name: string;
+  role: UserRole;
+  created_at: Date;
+  email_verified: boolean;
+  email_verified_at: Date | null;
+  google_sub: string | null;
+  auth_provider: AuthProvider;
+}
+
+function mapUser(row: UserRow): UserRecord {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.password_hash,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    role: row.role,
+    createdAt: row.created_at.toISOString(),
+    emailVerified: row.email_verified,
+    emailVerifiedAt:
+      row.email_verified_at?.toISOString() ?? null,
+    googleSub: row.google_sub,
+    authProvider: row.auth_provider,
+  };
+}
+
+const userColumns = `
+  id,
+  email,
+  password_hash,
+  first_name,
+  last_name,
+  role,
+  created_at,
+  email_verified,
+  email_verified_at,
+  google_sub,
+  auth_provider
+`;
+
+export async function findUserByEmail(
+  email: string,
+): Promise<UserRecord | null> {
+  const result = await pool.query<UserRow>(
+    `
+      SELECT ${userColumns}
+      FROM public.users
+      WHERE email = $1
+      LIMIT 1
+    `,
+    [email],
+  );
+
+  return result.rows[0]
+    ? mapUser(result.rows[0])
+    : null;
+}
+
+export async function findUserById(
+  id: string,
+): Promise<UserRecord | null> {
+  const result = await pool.query<UserRow>(
+    `
+      SELECT ${userColumns}
+      FROM public.users
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [id],
+  );
+
+  return result.rows[0]
+    ? mapUser(result.rows[0])
+    : null;
+}
+
+export async function createCustomer(input: {
+  email: string;
+  passwordHash: string;
+  firstName: string;
+  lastName: string;
+}): Promise<UserRecord> {
+  const result = await pool.query<UserRow>(
+    `
+      INSERT INTO public.users (
+        email,
+        password_hash,
+        first_name,
+        last_name,
+        role,
+        email_verified,
+        auth_provider
+      )
+      VALUES ($1, $2, $3, $4, 'CUSTOMER', FALSE, 'LOCAL')
+      RETURNING ${userColumns}
+    `,
+    [
+      input.email,
+      input.passwordHash,
+      input.firstName,
+      input.lastName,
+    ],
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    throw new Error("User creation failed.");
+  }
+
+  return mapUser(row);
+}
+
+export async function markEmailVerified(
+  userId: string,
+): Promise<void> {
+  await pool.query(
+    `
+      UPDATE public.users
+      SET
+        email_verified = TRUE,
+        email_verified_at = NOW()
+      WHERE id = $1
+    `,
+    [userId],
+  );
+}
+
+export async function updatePassword(
+  userId: string,
+  passwordHash: string,
+): Promise<void> {
+  await pool.query(
+    `
+      UPDATE public.users
+      SET password_hash = $2
+      WHERE id = $1
+    `,
+    [userId, passwordHash],
+  );
+}
+
+export async function createEmailVerificationToken(
+  userId: string,
+  tokenHash: string,
+  expiresAt: Date,
+): Promise<void> {
+  await pool.query(
+    `
+      UPDATE public.email_verification_tokens
+      SET used_at = NOW()
+      WHERE user_id = $1
+        AND used_at IS NULL
+    `,
+    [userId],
+  );
+
+  await pool.query(
+    `
+      INSERT INTO public.email_verification_tokens (
+        user_id,
+        token_hash,
+        expires_at
+      )
+      VALUES ($1, $2, $3)
+    `,
+    [userId, tokenHash, expiresAt],
+  );
+}
+
+export async function consumeEmailVerificationToken(
+  tokenHash: string,
+): Promise<string | null> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query<{ user_id: string }>(
+      `
+        SELECT user_id
+        FROM public.email_verification_tokens
+        WHERE token_hash = $1
+          AND used_at IS NULL
+          AND expires_at > NOW()
+        FOR UPDATE
+      `,
+      [tokenHash],
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `
+        UPDATE public.email_verification_tokens
+        SET used_at = NOW()
+        WHERE token_hash = $1
+      `,
+      [tokenHash],
+    );
+
+    await client.query(
+      `
+        UPDATE public.users
+        SET
+          email_verified = TRUE,
+          email_verified_at = NOW()
+        WHERE id = $1
+      `,
+      [row.user_id],
+    );
+
+    await client.query("COMMIT");
+    return row.user_id;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPasswordResetToken(
+  userId: string,
+  tokenHash: string,
+  expiresAt: Date,
+): Promise<void> {
+  await pool.query(
+    `
+      UPDATE public.password_reset_tokens
+      SET used_at = NOW()
+      WHERE user_id = $1
+        AND used_at IS NULL
+    `,
+    [userId],
+  );
+
+  await pool.query(
+    `
+      INSERT INTO public.password_reset_tokens (
+        user_id,
+        token_hash,
+        expires_at
+      )
+      VALUES ($1, $2, $3)
+    `,
+    [userId, tokenHash, expiresAt],
+  );
+}
+
+export async function consumePasswordResetToken(
+  tokenHash: string,
+  passwordHash: string,
+): Promise<boolean> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query<{ user_id: string }>(
+      `
+        SELECT user_id
+        FROM public.password_reset_tokens
+        WHERE token_hash = $1
+          AND used_at IS NULL
+          AND expires_at > NOW()
+        FOR UPDATE
+      `,
+      [tokenHash],
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    await client.query(
+      `
+        UPDATE public.users
+        SET password_hash = $2
+        WHERE id = $1
+      `,
+      [row.user_id, passwordHash],
+    );
+
+    await client.query(
+      `
+        UPDATE public.password_reset_tokens
+        SET used_at = NOW()
+        WHERE user_id = $1
+          AND used_at IS NULL
+      `,
+      [row.user_id],
+    );
+
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findUserByGoogleSub(
+  googleSub: string,
+): Promise<UserRecord | null> {
+  const result = await pool.query<UserRow>(
+    `
+      SELECT ${userColumns}
+      FROM public.users
+      WHERE google_sub = $1
+      LIMIT 1
+    `,
+    [googleSub],
+  );
+
+  return result.rows[0]
+    ? mapUser(result.rows[0])
+    : null;
+}
+
+export async function linkGoogleIdentity(
+  userId: string,
+  googleSub: string,
+): Promise<UserRecord> {
+  const result = await pool.query<UserRow>(
+    `
+      UPDATE public.users
+      SET
+        google_sub = $2,
+        email_verified = TRUE,
+        email_verified_at = COALESCE(email_verified_at, NOW()),
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${userColumns}
+    `,
+    [userId, googleSub],
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    throw new Error("Google account linking failed.");
+  }
+
+  return mapUser(row);
+}
+
+export async function createGoogleCustomer(input: {
+  email: string;
+  passwordHash: string;
+  firstName: string;
+  lastName: string;
+  googleSub: string;
+}): Promise<UserRecord> {
+  const result = await pool.query<UserRow>(
+    `
+      INSERT INTO public.users (
+        email,
+        password_hash,
+        first_name,
+        last_name,
+        role,
+        email_verified,
+        email_verified_at,
+        google_sub,
+        auth_provider
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        'CUSTOMER',
+        TRUE,
+        NOW(),
+        $5,
+        'GOOGLE'
+      )
+      RETURNING ${userColumns}
+    `,
+    [
+      input.email,
+      input.passwordHash,
+      input.firstName,
+      input.lastName,
+      input.googleSub,
+    ],
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    throw new Error("Google user creation failed.");
+  }
+
+  return mapUser(row);
+}

@@ -1,0 +1,935 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { authStore } from "../stores/auth";
+
+const router = useRouter();
+const route = useRoute();
+
+const mode = ref<"login" | "register">("login");
+const loading = ref(false);
+const error = ref("");
+const showPassword = ref(false);
+const registrationSent = ref(false);
+const registeredEmail = ref("");
+const googleButton = ref<HTMLElement | null>(null);
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize(config: {
+            client_id: string;
+            callback: (response: {
+              credential: string;
+            }) => void;
+          }): void;
+          renderButton(
+            element: HTMLElement,
+            options: Record<string, unknown>,
+          ): void;
+        };
+      };
+    };
+  }
+}
+
+function getRoleRedirect(): string {
+  const role = authStore.state.user?.role;
+
+  if (role === "SELLER") return "/seller";
+  if (role === "ADMIN") return "/admin";
+
+  return "/account";
+}
+
+async function handleGoogleCredential(
+  response: { credential: string },
+): Promise<void> {
+  try {
+    loading.value = true;
+    error.value = "";
+
+    await authStore.googleLogin(response.credential);
+
+    const redirect =
+      typeof route.query.redirect === "string"
+        ? route.query.redirect
+        : getRoleRedirect();
+
+    await router.push(redirect);
+  } catch (caught) {
+    error.value =
+      caught instanceof Error
+        ? caught.message
+        : "Google sign-in could not be completed.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+function renderGoogleButton(): void {
+  const clientId =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+
+  if (
+    !clientId ||
+    !googleButton.value ||
+    !window.google?.accounts?.id
+  ) {
+    return;
+  }
+
+  googleButton.value.innerHTML = "";
+
+  window.google.accounts.id.initialize({
+    client_id: clientId,
+    callback: (response) => {
+      void handleGoogleCredential(response);
+    },
+  });
+
+  window.google.accounts.id.renderButton(
+    googleButton.value,
+    {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text:
+        mode.value === "login"
+          ? "continue_with"
+          : "signup_with",
+      shape: "pill",
+      width: 400,
+    },
+  );
+}
+
+function loadGoogleIdentity(): void {
+  if (window.google?.accounts?.id) {
+    renderGoogleButton();
+    return;
+  }
+
+  if (
+    document.querySelector(
+      'script[data-nexamarket-google="true"]',
+    )
+  ) {
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.src = "https://accounts.google.com/gsi/client";
+  script.async = true;
+  script.defer = true;
+  script.dataset.nexamarketGoogle = "true";
+  script.onload = renderGoogleButton;
+  document.head.appendChild(script);
+}
+
+onMounted(loadGoogleIdentity);
+
+watch(mode, async () => {
+  registrationSent.value = false;
+  await nextTick();
+  renderGoogleButton();
+});
+
+const form = reactive({
+  firstName: "",
+  lastName: "",
+  email: "",
+  password: "",
+});
+
+const title = computed(() =>
+  mode.value === "login"
+    ? "Welcome back"
+    : "Create your account",
+);
+
+const subtitle = computed(() =>
+  mode.value === "login"
+    ? "Sign in to continue your NexaMarket experience."
+    : "Create your customer account and start exploring.",
+);
+
+function changeMode(next: "login" | "register"): void {
+  mode.value = next;
+  error.value = "";
+  showPassword.value = false;
+}
+
+async function submit(): Promise<void> {
+  error.value = "";
+
+  if (!form.email.trim() || !form.password) {
+    error.value = "Enter your email and password.";
+    return;
+  }
+
+  if (
+    mode.value === "register" &&
+    (!form.firstName.trim() || !form.lastName.trim())
+  ) {
+    error.value = "Enter your first and last name.";
+    return;
+  }
+
+  loading.value = true;
+
+  try {
+    if (mode.value === "register") {
+      await authStore.register({
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      });
+
+      registeredEmail.value = form.email.trim();
+      registrationSent.value = true;
+      form.password = "";
+      return;
+    } else {
+      await authStore.login({
+        email: form.email.trim(),
+        password: form.password,
+      });
+    }
+
+    const redirect =
+      typeof route.query.redirect === "string"
+        ? route.query.redirect
+        : getRoleRedirect();
+
+    await router.push(redirect);
+  } catch (caught) {
+    error.value =
+      caught instanceof Error
+        ? caught.message
+        : "Something went wrong. Please try again.";
+  } finally {
+    loading.value = false;
+  }
+}
+</script>
+
+<template>
+  <main class="nx-auth">
+    <section class="nx-auth-shell">
+      <div class="nx-auth-story">
+        <RouterLink to="/" class="nx-auth-brand">
+          NexaMarket<span>.</span>
+        </RouterLink>
+
+        <div class="nx-auth-story-copy">
+          <span class="nx-auth-kicker">
+            YOUR MARKETPLACE ACCOUNT
+          </span>
+
+          <h1>
+            Everything you love,
+            <em>all in one place.</em>
+          </h1>
+
+          <p>
+            Discover products, save favourites and manage
+            your NexaMarket orders from one secure account.
+          </p>
+        </div>
+
+        <div class="nx-auth-benefits">
+          <article>
+            <span>01</span>
+            <div>
+              <strong>Shop with confidence</strong>
+              <p>
+                Secure authentication keeps your marketplace
+                activity connected to your account.
+              </p>
+            </div>
+          </article>
+
+          <article>
+            <span>02</span>
+            <div>
+              <strong>Keep favourites close</strong>
+              <p>
+                Save products to your wishlist and return
+                whenever you're ready.
+              </p>
+            </div>
+          </article>
+
+          <article>
+            <span>03</span>
+            <div>
+              <strong>Follow every order</strong>
+              <p>
+                Review your simulated purchases and order
+                details from your dashboard.
+              </p>
+            </div>
+          </article>
+        </div>
+
+        <p class="nx-auth-footnote">
+          Portfolio marketplace · Development environment
+        </p>
+      </div>
+
+      <div class="nx-auth-panel">
+        <div class="nx-auth-card">
+          <div class="nx-auth-tabs">
+            <button
+              type="button"
+              :class="{ active: mode === 'login' }"
+              @click="changeMode('login')"
+            >
+              Sign in
+            </button>
+
+            <button
+              type="button"
+              :class="{ active: mode === 'register' }"
+              @click="changeMode('register')"
+            >
+              Create account
+            </button>
+          </div>
+
+          <div class="nx-auth-heading">
+            <div class="nx-auth-logo">N</div>
+
+            <span>
+              {{
+                mode === "login"
+                  ? "GOOD TO SEE YOU AGAIN"
+                  : "JOIN NEXAMARKET"
+              }}
+            </span>
+
+            <h2>{{ title }}</h2>
+            <p>{{ subtitle }}</p>
+          </div>
+
+          <div
+            v-if="registrationSent"
+            class="nx-registration-success"
+          >
+            <div class="nx-registration-success-icon">✓</div>
+            <span>CHECK YOUR EMAIL</span>
+            <h3>Verify your account.</h3>
+            <p>
+              We sent a verification link to
+              <strong>{{ registeredEmail }}</strong>.
+              Open the email to activate your NexaMarket account.
+            </p>
+            <button
+              type="button"
+              @click="changeMode('login')"
+            >
+              Return to sign in
+            </button>
+          </div>
+
+          <template v-else>
+            <div class="nx-google-auth">
+              <div ref="googleButton"></div>
+            </div>
+
+            <div class="nx-auth-divider">
+              <span>or continue with email</span>
+            </div>
+
+          <form
+            class="nx-auth-form"
+            @submit.prevent="submit"
+          >
+            <div
+              v-if="mode === 'register'"
+              class="nx-auth-name-grid"
+            >
+              <label>
+                <span>First name</span>
+                <input
+                  v-model="form.firstName"
+                  type="text"
+                  autocomplete="given-name"
+                  maxlength="100"
+                  placeholder="First name"
+                  required
+                />
+              </label>
+
+              <label>
+                <span>Last name</span>
+                <input
+                  v-model="form.lastName"
+                  type="text"
+                  autocomplete="family-name"
+                  maxlength="100"
+                  placeholder="Last name"
+                  required
+                />
+              </label>
+            </div>
+
+            <label>
+              <span>Email address</span>
+              <div class="nx-auth-input">
+                <span aria-hidden="true">✉</span>
+
+                <input
+                  v-model="form.email"
+                  type="email"
+                  autocomplete="email"
+                  placeholder="you@example.com"
+                  maxlength="254"
+                  required
+                />
+              </div>
+            </label>
+
+            <label>
+              <span>Password</span>
+
+              <div class="nx-auth-input">
+                <span aria-hidden="true">●</span>
+
+                <input
+                  v-model="form.password"
+                  :type="showPassword ? 'text' : 'password'"
+                  :autocomplete="
+                    mode === 'login'
+                      ? 'current-password'
+                      : 'new-password'
+                  "
+                  minlength="10"
+                  maxlength="128"
+                  placeholder="Enter your password"
+                  required
+                />
+
+                <button
+                  type="button"
+                  class="nx-password-toggle"
+                  @click="showPassword = !showPassword"
+                >
+                  {{ showPassword ? "Hide" : "Show" }}
+                </button>
+              </div>
+
+              <small v-if="mode === 'register'">
+                Use 10+ characters with uppercase,
+                lowercase and a number.
+              </small>
+
+              <RouterLink
+                v-if="mode === 'login'"
+                to="/forgot-password"
+                class="nx-forgot-password"
+              >
+                Forgot password?
+              </RouterLink>
+            </label>
+
+            <div
+              v-if="error"
+              class="nx-auth-error"
+              role="alert"
+              aria-live="polite"
+            >
+              <strong>!</strong>
+              {{ error }}
+            </div>
+
+            <button
+              class="nx-auth-submit"
+              type="submit"
+              :disabled="loading"
+            >
+              <span>
+                {{
+                  loading
+                    ? "Please wait…"
+                    : mode === "login"
+                      ? "Sign in to NexaMarket"
+                      : "Create my account"
+                }}
+              </span>
+
+              <span v-if="!loading">→</span>
+            </button>
+          </form>
+          </template>
+
+          <div class="nx-auth-divider">
+            <span></span>
+            <p>YOUR NEXAMARKET ACCOUNT</p>
+            <span></span>
+          </div>
+
+          <p class="nx-auth-switch">
+            {{
+              mode === "login"
+                ? "New to NexaMarket?"
+                : "Already have an account?"
+            }}
+
+            <button
+              type="button"
+              @click="
+                changeMode(
+                  mode === 'login'
+                    ? 'register'
+                    : 'login'
+                )
+              "
+            >
+              {{
+                mode === "login"
+                  ? "Create an account"
+                  : "Sign in"
+              }}
+            </button>
+          </p>
+
+          <RouterLink
+            to="/"
+            class="nx-auth-back"
+          >
+            ← Back to marketplace
+          </RouterLink>
+        </div>
+      </div>
+    </section>
+  </main>
+</template>
+
+<style scoped>
+.nx-auth {
+  min-height: calc(100vh - 110px);
+  padding: 32px;
+  background: #f4f5ef;
+  color: #18382e;
+}
+
+.nx-auth-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(440px, .95fr);
+  width: min(1180px, 100%);
+  min-height: 720px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 30px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(24, 56, 46, .10);
+}
+
+.nx-auth-story {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 52px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 90% 5%, rgba(255,211,74,.35), transparent 30%),
+    radial-gradient(circle at 10% 95%, rgba(240,124,119,.25), transparent 30%),
+    #173f32;
+  color: #fff;
+}
+
+.nx-auth-story::after {
+  content: "";
+  position: absolute;
+  right: -100px;
+  bottom: -120px;
+  width: 330px;
+  height: 330px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 50%;
+}
+
+.nx-auth-brand {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  color: #fff;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -.04em;
+  text-decoration: none;
+}
+
+.nx-auth-brand span {
+  color: #f3ce55;
+}
+
+.nx-auth-story-copy {
+  position: relative;
+  z-index: 1;
+  margin: auto 0 40px;
+  max-width: 530px;
+}
+
+.nx-auth-kicker {
+  display: block;
+  margin-bottom: 17px;
+  color: #d6e7df;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .15em;
+}
+
+.nx-auth-story h1 {
+  margin: 0;
+  font-size: clamp(48px, 5vw, 70px);
+  line-height: .98;
+  letter-spacing: -.055em;
+}
+
+.nx-auth-story h1 em {
+  display: block;
+  margin-top: 8px;
+  color: #f3ce55;
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+
+.nx-auth-story-copy p {
+  max-width: 470px;
+  margin: 25px 0 0;
+  color: #d4e1dc;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.nx-auth-benefits {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+}
+
+.nx-auth-benefits article {
+  display: flex;
+  gap: 16px;
+  padding: 15px 0;
+  border-top: 1px solid rgba(255,255,255,.15);
+}
+
+.nx-auth-benefits article > span {
+  color: #f3ce55;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.nx-auth-benefits strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.nx-auth-benefits p {
+  margin: 0;
+  color: #bdcec7;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.nx-auth-footnote {
+  position: relative;
+  z-index: 1;
+  margin: 28px 0 0;
+  color: #8eaaa0;
+  font-size: 11px;
+}
+
+.nx-auth-panel {
+  display: grid;
+  place-items: center;
+  padding: 45px;
+}
+
+.nx-auth-card {
+  width: min(100%, 470px);
+}
+
+.nx-auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 5px;
+  margin-bottom: 39px;
+  border-radius: 999px;
+  background: #eff1ec;
+}
+
+.nx-auth-tabs button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #707872;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nx-auth-tabs button.active {
+  background: #fff;
+  color: #18382e;
+  box-shadow: 0 3px 14px rgba(0,0,0,.08);
+}
+
+.nx-auth-heading {
+  margin-bottom: 29px;
+}
+
+.nx-auth-logo {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: #173f32;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.nx-auth-heading > span {
+  color: #237052;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+
+.nx-auth-heading h2 {
+  margin: 7px 0;
+  color: #172f27;
+  font-size: 37px;
+  letter-spacing: -.04em;
+}
+
+.nx-auth-heading p {
+  margin: 0;
+  color: #78807b;
+  font-size: 14px;
+}
+
+.nx-auth-form {
+  display: grid;
+  gap: 19px;
+}
+
+.nx-auth-name-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+.nx-auth-form label > span {
+  display: block;
+  margin-bottom: 8px;
+  color: #374b43;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.nx-auth-form input {
+  width: 100%;
+  min-width: 0;
+  height: 52px;
+  padding: 0 15px;
+  border: 1px solid #dfe3dd;
+  border-radius: 13px;
+  outline: 0;
+  background: #fafbf8;
+  color: #172f27;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.nx-auth-name-grid input {
+  padding: 0 14px;
+}
+
+.nx-auth-input {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding-left: 15px;
+  border: 1px solid #dfe3dd;
+  border-radius: 13px;
+  background: #fafbf8;
+}
+
+.nx-auth-input:focus-within {
+  border-color: #2b7258;
+  box-shadow: 0 0 0 3px rgba(43,114,88,.09);
+}
+
+.nx-auth-input > span {
+  color: #758079;
+  font-size: 12px;
+}
+
+.nx-auth-input input {
+  height: 50px;
+  border: 0;
+  background: transparent;
+}
+
+.nx-password-toggle {
+  margin-right: 13px;
+  border: 0;
+  background: transparent;
+  color: #176548;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nx-auth-form small {
+  display: block;
+  margin-top: 7px;
+  color: #8a918d;
+  font-size: 11px;
+}
+
+.nx-auth-error {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: #fff0ee;
+  color: #9b3e35;
+  font-size: 13px;
+}
+
+.nx-auth-submit {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 55px;
+  padding: 0 21px;
+  border: 0;
+  border-radius: 999px;
+  background: #173f32;
+  color: #fff;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.nx-auth-submit:hover:not(:disabled) {
+  background: #0e3327;
+}
+
+.nx-auth-submit:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.nx-auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+  margin: 27px 0 18px;
+}
+
+.nx-auth-divider span {
+  height: 1px;
+  background: #e5e7e2;
+}
+
+.nx-auth-divider p {
+  margin: 0;
+  color: #9a9f9b;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .1em;
+}
+
+.nx-auth-switch {
+  margin: 0;
+  text-align: center;
+  color: #747c77;
+  font-size: 13px;
+}
+
+.nx-auth-switch button {
+  border: 0;
+  background: transparent;
+  color: #176548;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.nx-auth-back {
+  display: block;
+  margin-top: 24px;
+  text-align: center;
+  color: #6f7872;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+@media (max-width: 900px) {
+  .nx-auth {
+    padding: 20px;
+  }
+
+  .nx-auth-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .nx-auth-story {
+    min-height: 440px;
+    padding: 38px;
+  }
+
+  .nx-auth-story-copy {
+    margin: 65px 0 35px;
+  }
+}
+
+@media (max-width: 560px) {
+  .nx-auth {
+    padding: 0;
+  }
+
+  .nx-auth-shell {
+    border-radius: 0;
+  }
+
+  .nx-auth-story {
+    min-height: auto;
+    padding: 30px 24px;
+  }
+
+  .nx-auth-story-copy {
+    margin: 50px 0 25px;
+  }
+
+  .nx-auth-story h1 {
+    font-size: 43px;
+  }
+
+  .nx-auth-benefits {
+    display: none;
+  }
+
+  .nx-auth-panel {
+    padding: 36px 22px;
+  }
+
+  .nx-auth-name-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

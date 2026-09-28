@@ -1,0 +1,13 @@
+product_id,name,price,is_active,stock,category,seller
+de000000-0000-4000-8000-400000000001,4K Smart LED TV,8.5,True,24,Electronics,Nexa Living Store
+de000000-0000-4000-8000-400000000010,Compact Wireless Earphones,11.5,True,13,Technology,Nexa Living Store
+a06cdd8a-b0e5-4488-879e-9b485dd4ae5d,Digital Air Fryer,24.99,True,38,Technology,Nexa Digital Store
+de000000-0000-4000-8000-400000000006,Fresh Blend Juicer,18.75,True,12,Home & Kitchen,Nexa Living Store
+de000000-0000-4000-8000-400000000005,Luxury Comfort Bed,34.5,True,6,Home & Kitchen,Nexa Living Store
+de000000-0000-4000-8000-400000000008,Luxury Freestanding Bathtub,27.0,True,0,Lifestyle,Nexa Living Store
+de000000-0000-4000-8000-400000000002,Portable Wireless Speaker,29.9,True,8,Electronics,Nexa Living Store
+de000000-0000-4000-8000-400000000003,Premium Bluetooth Speaker,6.25,True,38,Electronics,Nexa Living Store
+de000000-0000-4000-8000-400000000004,Premium Coffee Machine,12.0,True,16,Home & Kitchen,Nexa Living Store
+d1075001-0ac9-40b8-b054-a6779e1aaa38,Premium Smart Watch,34.99,True,38,Technology,Nexa Tech Store
+de000000-0000-4000-8000-400000000007,Smart Watch,19.95,True,20,Lifestyle,Nexa Living Store
+de000000-0000-4000-8000-400000000009,Wireless Earbuds,14.0,True,16,Technology,Nexa Living Store

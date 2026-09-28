@@ -1,0 +1,111 @@
+import { pool } from "../db/index.js";
+
+export interface AiCatalogueProduct {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  price: string;
+  imageUrl: string | null;
+  availableQuantity: number;
+  category: string;
+  seller: string;
+}
+
+export interface AiCatalogueFilters {
+  search?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  inStockOnly?: boolean;
+  limit?: number;
+}
+
+export async function findProductsForAssistant(
+  filters: AiCatalogueFilters,
+): Promise<AiCatalogueProduct[]> {
+  const conditions = [
+    "p.is_active = TRUE",
+  ];
+
+  const values: Array<string | number> = [];
+
+  if (filters.search?.trim()) {
+    values.push(`%${filters.search.trim()}%`);
+    const index = values.length;
+
+    conditions.push(
+      `(p.name ILIKE $${index} OR ` +
+      `COALESCE(p.description, '') ILIKE $${index} OR ` +
+      `c.name ILIKE $${index} OR ` +
+      `s.store_name ILIKE $${index})`,
+    );
+  }
+
+  if (
+    typeof filters.minPrice === "number" &&
+    Number.isFinite(filters.minPrice)
+  ) {
+    values.push(filters.minPrice);
+    conditions.push(`p.price >= $${values.length}`);
+  }
+
+  if (
+    typeof filters.maxPrice === "number" &&
+    Number.isFinite(filters.maxPrice)
+  ) {
+    values.push(filters.maxPrice);
+    conditions.push(`p.price <= $${values.length}`);
+  }
+
+  if (filters.inStockOnly !== false) {
+    conditions.push("COALESCE(i.quantity, 0) > 0");
+  }
+
+  const limit = Math.min(
+    Math.max(filters.limit ?? 5, 1),
+    10,
+  );
+
+  values.push(limit);
+
+  const result = await pool.query(
+    `
+      SELECT
+        p.id,
+        p.name,
+        p.slug,
+        p.description,
+        p.price::text AS price,
+        p.image_url,
+        COALESCE(i.quantity, 0)::int
+          AS available_quantity,
+        c.name AS category_name,
+        s.store_name
+      FROM public.products p
+      JOIN public.categories c
+        ON c.id = p.category_id
+      JOIN public.sellers s
+        ON s.id = p.seller_id
+      LEFT JOIN public.inventory i
+        ON i.product_id = p.id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY
+        COALESCE(i.quantity, 0) DESC,
+        p.created_at DESC
+      LIMIT $${values.length}
+    `,
+    values,
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    description: row.description,
+    price: row.price,
+    imageUrl: row.image_url,
+    availableQuantity: row.available_quantity,
+    category: row.category_name,
+    seller: row.store_name,
+  }));
+}

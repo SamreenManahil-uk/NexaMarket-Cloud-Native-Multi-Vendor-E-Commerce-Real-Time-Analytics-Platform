@@ -1,0 +1,104 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
+import { Bar, Doughnut, Line } from "vue-chartjs";
+import { Chart as ChartJS, ArcElement, BarElement, CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend } from "chart.js";
+import { getAnalyticsDashboard } from "../services/analytics";
+import type { AnalyticsDashboard } from "../types/analytics";
+
+ChartJS.register(ArcElement, BarElement, CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend);
+
+const data = ref<AnalyticsDashboard | null>(null);
+const loading = ref(true);
+const error = ref("");
+
+onMounted(async () => {
+  try { data.value = await getAnalyticsDashboard(); }
+  catch (e) { error.value = e instanceof Error ? e.message : "Analytics unavailable."; }
+  finally { loading.value = false; }
+});
+
+const money = (v: number) => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(v);
+
+const segmentChart = computed(() => ({
+  labels: Object.keys(data.value?.summary.business_insights.customers.segments ?? {}),
+  datasets: [{ data: Object.values(data.value?.summary.business_insights.customers.segments ?? {}) }]
+}));
+
+const productChart = computed(() => ({
+  labels: data.value?.summary.business_insights.top_products.map(p => p.product_name) ?? [],
+  datasets: [{ label: "Order value (£)", data: data.value?.summary.business_insights.top_products.map(p => p.sales_value) ?? [] }]
+}));
+
+const forecastChart = computed(() => {
+  const history = data.value?.demandHistory ?? [];
+  const forecast = data.value?.forecast ?? [];
+  return {
+    labels: [...history.map(x => x.date ?? x.order_date ?? ""), ...forecast.map(x => x.date ?? x.forecast_date ?? "")],
+    datasets: [
+      { label: "Historical demand", data: [...history.map(x => Number(x.units_sold ?? x.demand ?? x.quantity ?? 0)), ...forecast.map(() => null)] },
+      { label: "Forecast", data: [...history.map(() => null), ...forecast.map(x => Number(x.predicted_demand ?? x.forecast ?? x.units ?? 0))] }
+    ]
+  };
+});
+
+const chartOptions = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} };
+</script>
+
+<template>
+  <main class="analytics-page">
+    <section class="hero">
+      <div><span class="eyebrow">NEXAMARKET INTELLIGENCE</span><h1>Analytics & Data Science</h1><p>Customer intelligence, marketplace performance and demand forecasting generated from NexaMarket transactional data.</p></div>
+      <div class="live"><span></span> PostgreSQL analytics</div>
+    </section>
+
+    <div v-if="loading" class="state">Loading marketplace intelligence…</div>
+    <div v-else-if="error" class="state error">{{ error }}</div>
+
+    <template v-else-if="data">
+      <section class="kpis">
+        <article><span>Order value</span><strong>{{ money(data.summary.business_insights.orders.order_value) }}</strong><small>Simulated checkout</small></article>
+        <article><span>Qualifying orders</span><strong>{{ data.summary.business_insights.orders.qualifying_orders }}</strong><small>Analysed orders</small></article>
+        <article><span>Units sold</span><strong>{{ data.summary.business_insights.orders.units_sold }}</strong><small>Across qualifying orders</small></article>
+        <article><span>Average order value</span><strong>{{ money(data.summary.business_insights.orders.average_order_value) }}</strong><small>Marketplace order value</small></article>
+      </section>
+
+      <section class="two">
+        <article class="panel">
+          <div class="panel-head"><div><span class="eyebrow">MACHINE LEARNING</span><h2>Customer Segmentation</h2></div><span class="badge">K-Means</span></div>
+          <div class="chart"><Doughnut :data="segmentChart" :options="{...chartOptions,plugins:{legend:{display:true,position:`bottom`}}}" /></div>
+          <div class="model-stats"><div><strong>{{ data.summary.clustering.clusters }}</strong><span>Clusters</span></div><div><strong>{{ data.summary.clustering.silhouette_score }}</strong><span>Silhouette score</span></div><div><strong>{{ data.summary.business_insights.customers.analysed_customers }}</strong><span>Customers</span></div></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><span class="eyebrow">PRODUCT INTELLIGENCE</span><h2>Top Products</h2></div></div>
+          <div class="chart"><Bar :data="productChart" :options="chartOptions" /></div>
+        </article>
+      </section>
+
+      <section class="panel forecast-panel">
+        <div class="panel-head"><div><span class="eyebrow">DEMAND INTELLIGENCE</span><h2>Demand Forecast</h2></div><span class="badge neutral">{{ data.summary.forecasting.forecast_days }} day horizon</span></div>
+        <div class="forecast-note"><strong>{{ data.summary.forecasting.method.replace("_"," ") }}</strong><span>{{ data.summary.forecasting.reason }}</span></div>
+        <div class="forecast-chart"><Line :data="forecastChart" :options="chartOptions" /></div>
+      </section>
+
+      <section class="two bottom-grid">
+        <article class="panel">
+          <div class="panel-head"><div><span class="eyebrow">RFM ANALYSIS</span><h2>Customer Intelligence</h2></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Customer</th><th>R</th><th>F</th><th>Monetary</th><th>Cluster</th><th>Segment</th></tr></thead><tbody><tr v-for="c in data.customerSegments" :key="c.customer_id"><td><strong>{{ c.first_name }} {{ c.last_name }}</strong><small>{{ c.email }}</small></td><td>{{ c.recency_days }}</td><td>{{ c.frequency }}</td><td>£{{ Number(c.monetary).toFixed(2) }}</td><td>{{ c.cluster }}</td><td><span class="segment">{{ c.segment }}</span></td></tr></tbody></table></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><span class="eyebrow">INVENTORY SIGNALS</span><h2>Stock Attention</h2></div></div>
+          <div v-for="p in data.summary.business_insights.low_stock_products" :key="p.product_id" class="stock-row"><div><strong>{{ p.name }}</strong><span>{{ p.category }} · {{ p.seller }}</span></div><b>{{ p.stock }} in stock</b></div>
+          <div class="method-card"><span>Model status</span><strong>{{ data.summary.clustering.model_trained ? "K-Means model trained" : "Model fallback" }}</strong><p>Segmentation uses RFM-derived customer behaviour. Forecasting currently uses a transparent baseline because only {{ data.summary.forecasting.history_days }} days of demand history are available.</p></div>
+        </article>
+      </section>
+
+      <section class="limitations"><strong>Analytics notes</strong><p v-for="note in data.summary.limitations" :key="note">• {{ note }}</p></section>
+    </template>
+  </main>
+</template>
+
+<style scoped>
+.analytics-page{max-width:1380px;margin:auto;padding:42px 28px 90px;color:#171717}.hero{background:#f3f0e9;border-radius:30px;padding:54px;display:flex;justify-content:space-between;align-items:flex-end;gap:30px;margin-bottom:28px}.hero h1{font-size:clamp(2.5rem,5vw,4.8rem);line-height:.98;margin:12px 0 18px}.hero p{max-width:720px;color:#626262;line-height:1.7}.eyebrow{font-size:.72rem;letter-spacing:.16em;font-weight:700}.live{background:#fff;padding:14px 18px;border-radius:999px;white-space:nowrap}.live span{display:inline-block;width:8px;height:8px;border-radius:50%;background:#168a55;margin-right:8px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:18px}.kpis article,.panel{border:1px solid #e8e8e8;border-radius:24px;background:#fff;padding:26px}.kpis span,.kpis small{display:block;color:#777}.kpis strong{display:block;font-size:2rem;margin:12px 0 5px}.two{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}.panel h2{margin:7px 0 20px;font-size:1.55rem}.badge,.segment{background:#edf7f1;color:#24734d;padding:8px 12px;border-radius:999px;font-size:.78rem}.neutral{background:#f3f3f3;color:#555}.chart{height:300px}.forecast-chart{height:320px}.model-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}.model-stats div{background:#f7f7f5;border-radius:16px;padding:15px}.model-stats strong,.model-stats span{display:block}.model-stats span{font-size:.78rem;color:#777;margin-top:4px}.forecast-panel{margin-bottom:18px}.forecast-note{display:flex;gap:14px;align-items:center;margin-bottom:18px;color:#666}.forecast-note strong{text-transform:capitalize;color:#222}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.86rem}th,td{text-align:left;padding:14px 10px;border-bottom:1px solid #eee;white-space:nowrap}td small{display:block;color:#888;margin-top:4px}.stock-row{display:flex;justify-content:space-between;gap:20px;padding:18px 0;border-bottom:1px solid #eee}.stock-row span{display:block;color:#777;font-size:.84rem;margin-top:5px}.stock-row b{color:#a33}.method-card{margin-top:24px;background:#f4f1eb;padding:22px;border-radius:18px}.method-card span,.method-card strong{display:block}.method-card strong{margin:6px 0}.method-card p{color:#666;line-height:1.6;margin-bottom:0}.limitations{margin-top:18px;background:#fafafa;border-radius:20px;padding:24px;color:#666}.limitations strong{color:#222}.limitations p{margin:8px 0}.state{text-align:center;padding:100px}.error{color:#a33}@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.two{grid-template-columns:1fr}.hero{padding:36px;display:block}.live{display:inline-block;margin-top:20px}}@media(max-width:560px){.analytics-page{padding:24px 16px 60px}.hero{padding:28px}.kpis{grid-template-columns:1fr}.forecast-note{display:block}.forecast-note span{display:block;margin-top:8px}}
+</style>

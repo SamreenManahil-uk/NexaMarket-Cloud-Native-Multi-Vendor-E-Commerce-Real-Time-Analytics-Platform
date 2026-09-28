@@ -1,0 +1,7 @@
+Measure,DAX
+Total Order Value,"SUM(daily_sales[order_value])"
+Total Orders,"SUM(daily_sales[orders])"
+Units Sold,"SUM(product_performance[units_sold])"
+Average Order Value,"DIVIDE([Total Order Value],[Total Orders],0)"
+Customers,"DISTINCTCOUNT(rfm_customers[customer_id])"
+Average Customer Value,"AVERAGE(customer_value[monetary])"

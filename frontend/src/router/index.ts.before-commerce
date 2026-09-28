@@ -1,0 +1,99 @@
+import { createRouter, createWebHistory } from "vue-router";
+import CatalogueView from "../views/CatalogueView.vue";
+import ProductView from "../views/ProductView.vue";
+import AuthView from "../views/AuthView.vue";
+import AccountView from "../views/AccountView.vue";
+import NotFoundView from "../views/NotFoundView.vue";
+import { authStore } from "../stores/auth";
+import { trackClickstream } from "../services/clickstream";
+
+export const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+
+  routes: [
+    {
+      path: "/",
+      name: "catalogue",
+      component: CatalogueView,
+    },
+    {
+      path: "/products/:id",
+      name: "product",
+      component: ProductView,
+    },
+    {
+      path: "/auth",
+      name: "auth",
+      component: AuthView,
+      meta: { guestOnly: true },
+    },
+    {
+      path: "/account",
+      name: "account",
+      component: AccountView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      component: NotFoundView,
+    },
+  ],
+
+  scrollBehavior: (to, from, savedPosition) => {
+    if (savedPosition) return savedPosition;
+
+    const headerOffset =
+      (document
+        .querySelector(".site-header")
+        ?.getBoundingClientRect().height || 136) + 24;
+
+    if (to.hash) {
+      return {
+        el: to.hash,
+        top: headerOffset,
+      };
+    }
+
+    if (
+      to.path === "/" &&
+      from.path === "/" &&
+      to.query.page !== from.query.page
+    ) {
+      return {
+        el: "#catalogue",
+        top: headerOffset,
+      };
+    }
+
+    if (to.path === from.path) return false;
+
+    return { top: 0 };
+  },
+});
+
+router.beforeEach(async (to) => {
+  if (!authStore.state.ready) {
+    await authStore.initialise();
+  }
+
+  if (to.meta.requiresAuth && !authStore.isAuthenticated.value) {
+    return {
+      path: "/auth",
+      query: {
+        redirect: to.fullPath,
+      },
+    };
+  }
+
+  if (to.meta.guestOnly && authStore.isAuthenticated.value) {
+    return "/account";
+  }
+
+  return true;
+});
+
+router.afterEach((to) => {
+  void trackClickstream("PAGE_VIEW", {
+    path: to.fullPath,
+  });
+});

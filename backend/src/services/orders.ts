@@ -1,0 +1,386 @@
+import { pool } from "../db/index.js";
+import { addOutboxEvent } from "../events/outbox.js";
+import type { Order, OrderStatus } from "../types/orders.js";
+import { CommerceError } from "./commerce.js";
+
+interface LockedCartRow {
+  cart_id: string;
+  product_id: string;
+  product_name: string;
+  unit_price: string;
+  requested_quantity: number;
+  available_quantity: number;
+  is_active: boolean;
+}
+
+interface OrderRow {
+  id: string;
+  status: OrderStatus;
+  total_amount: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface OrderItemRow {
+  id: string;
+  product_id: string | null;
+  product_name: string;
+  unit_price: string;
+  quantity: number;
+  line_total: string;
+}
+
+function mapOrder(row: OrderRow, items: OrderItemRow[]): Order {
+  return {
+    id: row.id,
+    status: row.status,
+    totalAmount: row.total_amount,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    items: items.map((item) => ({
+      id: item.id,
+      productId: item.product_id,
+      productName: item.product_name,
+      unitPrice: item.unit_price,
+      quantity: item.quantity,
+      lineTotal: item.line_total,
+    })),
+  };
+}
+
+export async function checkout(userId: string): Promise<Order> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    /*
+     * Inventory rows are locked until COMMIT/ROLLBACK.
+     * Concurrent checkouts therefore cannot both consume
+     * the same remaining stock.
+     */
+    const cartResult = await client.query<LockedCartRow>(
+      `
+        SELECT
+          c.id AS cart_id,
+          p.id AS product_id,
+          p.name AS product_name,
+          p.price::text AS unit_price,
+          ci.quantity::int AS requested_quantity,
+          i.quantity::int AS available_quantity,
+          p.is_active
+        FROM public.carts c
+        JOIN public.cart_items ci
+          ON ci.cart_id = c.id
+        JOIN public.products p
+          ON p.id = ci.product_id
+        JOIN public.inventory i
+          ON i.product_id = p.id
+        WHERE c.user_id = $1
+        ORDER BY i.product_id
+        FOR UPDATE OF i
+      `,
+      [userId],
+    );
+
+    if (cartResult.rows.length === 0) {
+      throw new CommerceError(400, "Cart is empty.");
+    }
+
+    for (const item of cartResult.rows) {
+      if (!item.is_active) {
+        throw new CommerceError(
+          409,
+          `${item.product_name} is no longer available.`,
+        );
+      }
+
+      if (item.requested_quantity > item.available_quantity) {
+        throw new CommerceError(
+          409,
+          `Insufficient stock for ${item.product_name}.`,
+        );
+      }
+    }
+
+    /*
+     * Calculate money in PostgreSQL NUMERIC rather than
+     * JavaScript floating point.
+     */
+    const totalResult = await client.query<{ total: string }>(
+      `
+        SELECT
+          SUM(p.price * ci.quantity)::numeric(14,2)::text AS total
+        FROM public.carts c
+        JOIN public.cart_items ci
+          ON ci.cart_id = c.id
+        JOIN public.products p
+          ON p.id = ci.product_id
+        WHERE c.user_id = $1
+      `,
+      [userId],
+    );
+
+    const total = totalResult.rows[0]?.total;
+
+    if (!total) {
+      throw new CommerceError(400, "Cart is empty.");
+    }
+
+    /*
+     * Simulated checkout:
+     * PENDING means an order was created successfully.
+     * We do NOT claim a real card/payment was processed.
+     */
+    const orderResult = await client.query<OrderRow>(
+      `
+        INSERT INTO public.orders (
+          user_id,
+          status,
+          total_amount
+        )
+        VALUES ($1, 'PENDING', $2::numeric)
+        RETURNING
+          id,
+          status,
+          total_amount::text,
+          created_at::text,
+          updated_at::text
+      `,
+      [userId, total],
+    );
+
+    const order = orderResult.rows[0];
+
+    if (!order) {
+      throw new Error("Order creation failed.");
+    }
+
+    /*
+     * Snapshot product name + current unit price.
+     * Historical order data remains correct even if the
+     * catalogue product changes later.
+     */
+    await client.query(
+      `
+        INSERT INTO public.order_items (
+          order_id,
+          product_id,
+          product_name,
+          unit_price,
+          quantity
+        )
+        SELECT
+          $1,
+          p.id,
+          p.name,
+          p.price,
+          ci.quantity
+        FROM public.carts c
+        JOIN public.cart_items ci
+          ON ci.cart_id = c.id
+        JOIN public.products p
+          ON p.id = ci.product_id
+        WHERE c.user_id = $2
+      `,
+      [order.id, userId],
+    );
+
+    /*
+     * Stock decrement occurs inside the same transaction
+     * while inventory rows remain locked.
+     */
+    for (const item of cartResult.rows) {
+      const update = await client.query(
+        `
+          UPDATE public.inventory
+          SET quantity = quantity - $1
+          WHERE
+            product_id = $2
+            AND quantity >= $1
+        `,
+        [item.requested_quantity, item.product_id],
+      );
+
+      if ((update.rowCount ?? 0) !== 1) {
+        throw new CommerceError(
+          409,
+          `Inventory changed for ${item.product_name}. Please retry.`,
+        );
+      }
+
+      await addOutboxEvent(client, {
+        aggregateType: "PRODUCT",
+        aggregateId: item.product_id,
+        eventType: "INVENTORY_UPDATED",
+        topic: "nexamarket.inventory",
+        payload: {
+          orderId: order.id,
+          productId: item.product_id,
+          productName: item.product_name,
+          quantityPurchased: item.requested_quantity,
+          previousQuantity: item.available_quantity,
+          newQuantity:
+            item.available_quantity - item.requested_quantity,
+          reason: "ORDER_CHECKOUT",
+        },
+      });
+    }
+
+    /*
+     * Cart clears only after order snapshots and inventory
+     * updates have succeeded.
+     */
+    await client.query(
+      `
+        DELETE FROM public.cart_items
+        WHERE cart_id = $1
+      `,
+      [cartResult.rows[0]!.cart_id],
+    );
+
+    const itemResult = await client.query<OrderItemRow>(
+      `
+        SELECT
+          id,
+          product_id,
+          product_name,
+          unit_price::text,
+          quantity::int,
+          line_total::text
+        FROM public.order_items
+        WHERE order_id = $1
+        ORDER BY created_at ASC
+      `,
+      [order.id],
+    );
+
+    /*
+     * Transactional outbox:
+     * The event is written using the SAME PostgreSQL transaction
+     * as the order and inventory updates. If checkout rolls back,
+     * this event rolls back too.
+     */
+    await addOutboxEvent(client, {
+      aggregateType: "ORDER",
+      aggregateId: order.id,
+      eventType: "ORDER_CREATED",
+      topic: "nexamarket.orders",
+      payload: {
+        orderId: order.id,
+        userId,
+        status: order.status,
+        totalAmount: order.total_amount,
+        items: itemResult.rows.map((item) => ({
+          productId: item.product_id,
+          productName: item.product_name,
+          unitPrice: item.unit_price,
+          quantity: item.quantity,
+          lineTotal: item.line_total,
+        })),
+      },
+    });
+
+    await client.query("COMMIT");
+
+    return mapOrder(order, itemResult.rows);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getOrders(userId: string): Promise<Order[]> {
+  const ordersResult = await pool.query<OrderRow>(
+    `
+      SELECT
+        id,
+        status,
+        total_amount::text,
+        created_at::text,
+        updated_at::text
+      FROM public.orders
+      WHERE user_id = $1
+      ORDER BY created_at DESC
+    `,
+    [userId],
+  );
+
+  const orders: Order[] = [];
+
+  for (const order of ordersResult.rows) {
+    const itemsResult = await pool.query<OrderItemRow>(
+      `
+        SELECT
+          id,
+          product_id,
+          product_name,
+          unit_price::text,
+          quantity::int,
+          line_total::text
+        FROM public.order_items
+        WHERE order_id = $1
+        ORDER BY created_at ASC
+      `,
+      [order.id],
+    );
+
+    orders.push(mapOrder(order, itemsResult.rows));
+  }
+
+  return orders;
+}
+
+export async function getOrder(
+  userId: string,
+  orderId: string,
+): Promise<Order> {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      orderId,
+    )
+  ) {
+    throw new CommerceError(400, "Invalid order ID.");
+  }
+
+  const orderResult = await pool.query<OrderRow>(
+    `
+      SELECT
+        id,
+        status,
+        total_amount::text,
+        created_at::text,
+        updated_at::text
+      FROM public.orders
+      WHERE id = $1 AND user_id = $2
+      LIMIT 1
+    `,
+    [orderId, userId],
+  );
+
+  const order = orderResult.rows[0];
+
+  if (!order) {
+    throw new CommerceError(404, "Order not found.");
+  }
+
+  const itemsResult = await pool.query<OrderItemRow>(
+    `
+      SELECT
+        id,
+        product_id,
+        product_name,
+        unit_price::text,
+        quantity::int,
+        line_total::text
+      FROM public.order_items
+      WHERE order_id = $1
+      ORDER BY created_at ASC
+    `,
+    [orderId],
+  );
+
+  return mapOrder(order, itemsResult.rows);
+}

@@ -1,0 +1,55 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { authStore } from "../stores/auth";
+import { commerceApi } from "../services/commerce";
+import type { WishlistItem } from "../types/commerce";
+
+const items = ref<WishlistItem[]>([]);
+const loading = ref(true);
+const error = ref("");
+
+async function loadWishlist() {
+  const token = authStore.state.token;
+  if (!token) return;
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await commerceApi.wishlist(token);
+    items.value = response.data ?? response.items ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load wishlist.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadWishlist);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <div class="commerce-heading">
+      <span>SAVED FOR LATER</span>
+      <h1>Wishlist</h1>
+      <p>Your saved NexaMarket products in one place.</p>
+    </div>
+
+    <p v-if="loading">Loading your wishlist...</p>
+    <p v-else-if="error" class="commerce-error">{{ error }}</p>
+    <div v-else-if="!items.length" class="commerce-empty">
+      <h2>Your wishlist is empty</h2>
+      <p>Save products you would like to revisit.</p>
+      <RouterLink to="/#catalogue">Discover products</RouterLink>
+    </div>
+    <div v-else class="commerce-list">
+      <article v-for="item in items" :key="item.productId" class="commerce-item">
+        <div>
+          <strong>{{ item.product?.name ?? item.name ?? "Product" }}</strong>
+        </div>
+        <strong v-if="item.product?.price ?? item.price">
+          £{{ Number(item.product?.price ?? item.price).toFixed(2) }}
+        </strong>
+      </article>
+    </div>
+  </main>
+</template>

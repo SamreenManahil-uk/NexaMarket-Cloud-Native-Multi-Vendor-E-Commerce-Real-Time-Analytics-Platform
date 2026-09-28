@@ -1,0 +1,50 @@
+import * as catalogue from "../repositories/catalogue.js";
+
+export const listCategories = catalogue.findCategories;
+function positiveInteger(value: unknown, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    throw Object.assign(new Error("Invalid pagination parameter"), { status: 400 });
+  }
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number > maximum) {
+    throw Object.assign(new Error("Pagination parameter exceeds maximum"), { status: 400 });
+  }
+  return number;
+}
+
+export async function listProducts(query: { page?: unknown; limit?: unknown; category?: unknown; search?: unknown }) {
+  const page = positiveInteger(query.page, 1, Number.MAX_SAFE_INTEGER);
+  const limit = positiveInteger(query.limit, 12, 100);
+  const offset = (page - 1) * limit;
+  if (!Number.isSafeInteger(offset)) {
+    throw Object.assign(new Error("Pagination offset exceeds maximum"), { status: 400 });
+  }
+  const category = query.category;
+  if (category !== undefined && (typeof category !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(category))) {
+    throw Object.assign(new Error("Invalid category slug"), { status: 400 });
+  }
+  const rawSearch = query.search;
+  if (rawSearch !== undefined && typeof rawSearch !== "string") {
+    throw Object.assign(new Error("Invalid search query"), { status: 400 });
+  }
+  const search = typeof rawSearch === "string" ? rawSearch.trim() : undefined;
+  if (search && search.length > 100) {
+    throw Object.assign(new Error("Search query exceeds maximum length"), { status: 400 });
+  }
+  const result = await catalogue.findActiveProducts({ page, limit, offset, category, search: search || undefined });
+  return {
+    data: result.data,
+    pagination: { page, limit, totalItems: result.totalItems, totalPages: Math.ceil(result.totalItems / limit) },
+  };
+}
+
+export async function getProduct(id: string): Promise<catalogue.Product> {
+  // Accept canonical PostgreSQL UUIDs, including uppercase hex, without coercion.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw Object.assign(new Error("Invalid product ID"), { status: 400 });
+  }
+  const product = await catalogue.findActiveProduct(id);
+  if (!product) throw Object.assign(new Error("Product not found"), { status: 404 });
+  return product;
+}

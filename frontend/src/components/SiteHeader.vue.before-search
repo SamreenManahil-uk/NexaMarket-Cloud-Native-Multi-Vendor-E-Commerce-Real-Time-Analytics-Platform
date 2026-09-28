@@ -1,0 +1,84 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { authStore } from "../stores/auth";
+
+const user = computed(() => authStore.state.user);
+</script>
+
+<template>
+  <header class="site-header">
+    <div class="header-inner container">
+      <RouterLink to="/" class="brand" aria-label="NexaMarket home">
+        <span class="brand-mark" aria-hidden="true">n<span>✦</span></span>
+        Nexa<span class="brand-light">Market</span
+        ><span class="brand-dot">.</span>
+      </RouterLink>
+
+      <div class="search-preview">
+        <span aria-hidden="true">⌕</span>
+        <input
+          type="search"
+          aria-label="Search marketplace — coming soon"
+          placeholder="Search products and categories"
+          disabled
+        />
+        <span class="soon-label">Coming soon</span>
+      </div>
+
+      <div class="header-utilities">
+        <RouterLink
+          :to="user ? '/account' : '/auth'"
+          class="utility-button account-utility"
+          :aria-label="user ? `Account for ${user.firstName}` : 'Sign in'"
+        >
+          <span aria-hidden="true">◯</span>
+
+          <span v-if="user">
+            {{ user.firstName }}
+            <small>My account</small>
+          </span>
+
+          <span v-else>
+            Sign in
+            <small>My account</small>
+          </span>
+        </RouterLink>
+
+        <button
+          class="utility-button"
+          disabled
+          aria-label="Wishlist coming soon"
+        >
+          <span aria-hidden="true">♡</span>
+          <span>Wishlist<small>Coming soon</small></span>
+        </button>
+
+        <button
+          class="utility-button"
+          disabled
+          aria-label="Cart coming soon"
+        >
+          <span aria-hidden="true">▱</span>
+          <span>Cart<small>Coming soon</small></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <nav class="container" aria-label="Main navigation">
+        <RouterLink :to="{ path: '/', hash: '#categories' }">
+          <span aria-hidden="true">▦</span>
+          Shop by category
+        </RouterLink>
+
+        <RouterLink :to="{ path: '/', hash: '#catalogue' }">
+          Explore products <span aria-hidden="true">↗</span>
+        </RouterLink>
+
+        <span class="nav-note">
+          Everything you need. All in one marketplace.
+        </span>
+      </nav>
+    </div>
+  </header>
+</template>

@@ -1,0 +1,209 @@
+<script setup lang="ts">
+import { computed, ref, watch, onBeforeUnmount } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { api, errorMessage } from "../services/api";
+import type { Category, ProductList } from "../types/catalogue";
+import ProductCard from "../components/ProductCard.vue";
+import PaginationControls from "../components/PaginationControls.vue";
+import StatusPanel from "../components/StatusPanel.vue";
+import MarketplaceHero from "../components/MarketplaceHero.vue";
+import CategoryDiscovery from "../components/CategoryDiscovery.vue";
+import ProductSkeleton from "../components/ProductSkeleton.vue";
+const route = useRoute(),
+  router = useRouter();
+const categories = ref<Category[]>([]),
+  categoryError = ref(""),
+  categoriesLoading = ref(true);
+const result = ref<ProductList | null>(null),
+  loading = ref(true),
+  error = ref("");
+const category = computed(() =>
+  typeof route.query.category === "string" ? route.query.category : "",
+);
+const page = computed(() => Number(route.query.page ?? 1));
+const limit = computed(() => Number(route.query.limit ?? 12));
+const inStock = computed(() =>
+  (result.value?.data || [])
+    .filter((product) => product.available_quantity > 0)
+    .slice(0, 3),
+);
+const selectedName = computed(
+  () =>
+    categories.value.find((c) => c.slug === category.value)?.name ||
+    "All products",
+);
+let categoryRequest: AbortController | undefined,
+  productRequest: AbortController | undefined;
+async function loadCategories() {
+  categoryRequest?.abort();
+  const request = (categoryRequest = new AbortController());
+  categoriesLoading.value = true;
+  categoryError.value = "";
+  try {
+    categories.value = (await api.categories(request.signal)).data;
+  } catch (e) {
+    if (!request.signal.aborted) categoryError.value = errorMessage(e);
+  } finally {
+    if (!request.signal.aborted) categoriesLoading.value = false;
+  }
+}
+async function loadProducts() {
+  productRequest?.abort();
+  const request = (productRequest = new AbortController());
+  error.value = "";
+  result.value = null;
+  loading.value = true;
+  const validNumber = (value: unknown) =>
+    value === undefined ||
+    (typeof value === "string" && /^[1-9][0-9]*$/.test(value));
+  if (
+    !validNumber(route.query.page) ||
+    !validNumber(route.query.limit) ||
+    !Number.isSafeInteger(page.value) ||
+    !Number.isSafeInteger((page.value - 1) * limit.value) ||
+    limit.value > 100 ||
+    (route.query.category !== undefined &&
+      (typeof route.query.category !== "string" ||
+        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(category.value)))
+  ) {
+    error.value =
+      "Invalid catalogue filters. Return to all products to start again.";
+    loading.value = false;
+    return;
+  }
+  try {
+    result.value = await api.products(
+      page.value,
+      limit.value,
+      category.value,
+      request.signal,
+    );
+  } catch (e) {
+    if (!request.signal.aborted) error.value = errorMessage(e);
+  } finally {
+    if (!request.signal.aborted) loading.value = false;
+  }
+}
+function changeCategory(value: string) {
+  void router.push({
+    path: "/",
+    query: {
+      ...(value ? { category: value } : {}),
+      limit: String(limit.value),
+      page: "1",
+    },
+  });
+}
+function changePage(value: number) {
+  void router.push({
+    path: "/",
+    query: { ...route.query, page: String(value) },
+  });
+}
+watch(() => route.query, loadProducts, { immediate: true });
+void loadCategories();
+onBeforeUnmount(() => {
+  categoryRequest?.abort();
+  productRequest?.abort();
+});
+</script>
+<template>
+  <MarketplaceHero />
+  <CategoryDiscovery
+    :categories="categories"
+    :selected="category"
+    :loading="categoriesLoading"
+    :error="categoryError"
+    @select="changeCategory"
+    @retry="loadCategories"
+  />
+  <section
+    id="catalogue"
+    class="catalogue-section"
+    aria-labelledby="catalogue-heading"
+  >
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Something for your everyday</p>
+        <h2 id="catalogue-heading">
+          {{ category ? selectedName : "Discover the catalogue"
+          }}<span class="coral-dot">.</span>
+        </h2>
+      </div>
+      <span class="sort-label">↕ &nbsp; Sorted by name</span>
+    </div>
+    <div class="catalogue-meta">
+      <p v-if="result" class="results-summary" role="status">
+        <strong>{{ result.pagination.totalItems }}</strong> products
+        <span>· {{ category ? selectedName : "All categories" }}</span>
+      </p>
+      <p v-else class="results-summary">
+        Explore the details. Find your favourites.
+      </p>
+      <span>Prices as listed · currency not supplied</span>
+    </div>
+    <div :aria-busy="loading">
+      <ProductSkeleton v-if="loading" />
+      <StatusPanel
+        v-else-if="error"
+        title="A little pause in discovery"
+        :message="error"
+        error
+        retry
+        @retry="loadProducts"
+        ><RouterLink to="/">Return to all products</RouterLink></StatusPanel
+      >
+      <template v-else-if="result">
+        <StatusPanel
+          v-if="!result.data.length"
+          title="Nothing here just yet"
+          message="Try another category or return to the first page to keep exploring."
+          ><RouterLink to="/">Browse all products →</RouterLink></StatusPanel
+        >
+        <div v-else class="product-grid">
+          <ProductCard
+            v-for="product in result.data"
+            :key="product.id"
+            :product="product"
+          />
+        </div>
+        <PaginationControls
+          v-if="result.pagination.totalItems > 0"
+          :pagination="result.pagination"
+          :busy="loading"
+          @change="changePage"
+        />
+      </template>
+    </div>
+  </section>
+  <section
+    v-if="!loading && !error && inStock.length"
+    class="stock-discovery"
+    aria-labelledby="stock-heading"
+  >
+    <div>
+      <p class="eyebrow">A little more to explore</p>
+      <h2 id="stock-heading">In stock.<br />Full of possibility.</h2>
+      <p>Available discoveries from this catalogue page. Take a closer look.</p>
+      <span class="stock-decoration" aria-hidden="true">✳</span>
+    </div>
+    <div class="stock-discovery-links">
+      <RouterLink
+        v-for="product in inStock"
+        :key="product.id"
+        :to="{
+          name: 'product',
+          params: { id: product.id },
+          query: route.query,
+        }"
+        ><span
+          ><small>{{ product.category.name }}</small
+          ><strong>{{ product.name }}</strong
+          ><span>{{ product.seller.store_name }}</span></span
+        ><span class="discovery-price"
+          >{{ product.price }} <span aria-hidden="true">↗</span></span
+        ></RouterLink
+      >
+    </div>
+  </section>
+</template>

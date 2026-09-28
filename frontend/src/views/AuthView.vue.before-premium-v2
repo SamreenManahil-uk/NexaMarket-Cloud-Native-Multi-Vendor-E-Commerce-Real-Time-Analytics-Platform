@@ -1,0 +1,233 @@
+<script setup lang="ts">
+import { computed, reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { authStore } from "../stores/auth";
+
+const router = useRouter();
+const route = useRoute();
+
+const mode = ref<"login" | "register">("login");
+const loading = ref(false);
+const error = ref("");
+
+const form = reactive({
+  firstName: "",
+  lastName: "",
+  email: "",
+  password: "",
+});
+
+const title = computed(() =>
+  mode.value === "login" ? "Welcome back" : "Create your account",
+);
+
+function changeMode(next: "login" | "register"): void {
+  mode.value = next;
+  error.value = "";
+}
+
+async function submit(): Promise<void> {
+  error.value = "";
+
+  if (!form.email.trim() || !form.password) {
+    error.value = "Enter your email and password.";
+    return;
+  }
+
+  if (
+    mode.value === "register" &&
+    (!form.firstName.trim() || !form.lastName.trim())
+  ) {
+    error.value = "Enter your first and last name.";
+    return;
+  }
+
+  loading.value = true;
+
+  try {
+    if (mode.value === "register") {
+      await authStore.register({
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      });
+    } else {
+      await authStore.login({
+        email: form.email.trim(),
+        password: form.password,
+      });
+    }
+
+    const redirect =
+      typeof route.query.redirect === "string"
+        ? route.query.redirect
+        : "/account";
+
+    await router.push(redirect);
+  } catch (caught) {
+    error.value =
+      caught instanceof Error
+        ? caught.message
+        : "Something went wrong. Please try again.";
+  } finally {
+    loading.value = false;
+  }
+}
+</script>
+
+<template>
+  <section class="auth-page">
+    <div class="auth-story">
+      <p class="eyebrow">Your NexaMarket account</p>
+
+      <h1>
+        Shop smarter.<br />
+        Keep everything <em>together.</em>
+      </h1>
+
+      <p class="auth-story-copy">
+        Sign in to manage your marketplace account. Cart, wishlist and order
+        tools are being connected to this secure account experience.
+      </p>
+
+      <div class="auth-benefits">
+        <div>
+          <span aria-hidden="true">01</span>
+          <p><strong>Secure account</strong>Protected authentication for your marketplace activity.</p>
+        </div>
+
+        <div>
+          <span aria-hidden="true">02</span>
+          <p><strong>Your shopping space</strong>One place for the customer features we build next.</p>
+        </div>
+
+        <div>
+          <span aria-hidden="true">03</span>
+          <p><strong>Real marketplace data</strong>Your account connects directly to NexaMarket's API.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs" aria-label="Account options">
+        <button
+          type="button"
+          :class="{ active: mode === 'login' }"
+          @click="changeMode('login')"
+        >
+          Sign in
+        </button>
+
+        <button
+          type="button"
+          :class="{ active: mode === 'register' }"
+          @click="changeMode('register')"
+        >
+          Create account
+        </button>
+      </div>
+
+      <div class="auth-heading">
+        <span class="auth-mark" aria-hidden="true">n✦</span>
+        <div>
+          <p class="eyebrow">NexaMarket</p>
+          <h2>{{ title }}</h2>
+        </div>
+      </div>
+
+      <form class="auth-form" @submit.prevent="submit">
+        <div v-if="mode === 'register'" class="auth-name-grid">
+          <label>
+            <span>First name</span>
+            <input
+              v-model="form.firstName"
+              type="text"
+              autocomplete="given-name"
+              maxlength="100"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Last name</span>
+            <input
+              v-model="form.lastName"
+              type="text"
+              autocomplete="family-name"
+              maxlength="100"
+              required
+            />
+          </label>
+        </div>
+
+        <label>
+          <span>Email address</span>
+          <input
+            v-model="form.email"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            maxlength="254"
+            required
+          />
+        </label>
+
+        <label>
+          <span>Password</span>
+          <input
+            v-model="form.password"
+            type="password"
+            :autocomplete="
+              mode === 'login' ? 'current-password' : 'new-password'
+            "
+            minlength="10"
+            maxlength="128"
+            required
+          />
+
+          <small v-if="mode === 'register'">
+            10+ characters with uppercase, lowercase and a number.
+          </small>
+        </label>
+
+        <div
+          v-if="error"
+          class="auth-error"
+          role="alert"
+          aria-live="polite"
+        >
+          {{ error }}
+        </div>
+
+        <button class="auth-submit" type="submit" :disabled="loading">
+          {{
+            loading
+              ? "Please wait…"
+              : mode === "login"
+                ? "Sign in to NexaMarket"
+                : "Create my account"
+          }}
+          <span v-if="!loading" aria-hidden="true">→</span>
+        </button>
+      </form>
+
+      <p class="auth-switch">
+        {{
+          mode === "login"
+            ? "New to NexaMarket?"
+            : "Already have an account?"
+        }}
+
+        <button
+          type="button"
+          @click="
+            changeMode(mode === 'login' ? 'register' : 'login')
+          "
+        >
+          {{ mode === "login" ? "Create an account" : "Sign in" }}
+        </button>
+      </p>
+    </div>
+  </section>
+</template>

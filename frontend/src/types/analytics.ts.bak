@@ -1,0 +1,18 @@
+export interface AnalyticsDashboard {
+  summary: {
+    generated_at: string;
+    source: string;
+    clustering: { method: string; model_trained: boolean; clusters: number; silhouette_score: number; reason: string | null };
+    forecasting: { method: string; model_trained: boolean; reason: string | null; history_days: number; forecast_days: number };
+    business_insights: {
+      orders: { qualifying_orders: number; order_value: number; average_order_value: number; units_sold: number };
+      customers: { analysed_customers: number; segments: Record<string, number> };
+      top_products: Array<{ product_id: string; product_name: string; units_sold: number; sales_value: number }>;
+      low_stock_products: Array<{ product_id: string; name: string; stock: number; category: string; seller: string }>;
+    };
+    limitations: string[];
+  };
+  customerSegments: Array<Record<string, string>>;
+  forecast: Array<Record<string, string>>;
+  demandHistory: Array<Record<string, string>>;
+}

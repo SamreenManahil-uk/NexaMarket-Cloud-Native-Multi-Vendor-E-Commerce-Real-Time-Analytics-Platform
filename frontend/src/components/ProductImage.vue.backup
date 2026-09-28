@@ -1,0 +1,48 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import CategoryArtwork from "./CategoryArtwork.vue";
+import { categoryTheme } from "../utils/artwork";
+const props = defineProps<{
+  src: string | null;
+  name: string;
+  category?: string;
+  eager?: boolean;
+}>();
+const failed = ref(false);
+const safeSource = computed(() => {
+  if (!props.src) return null;
+  try {
+    const url = new URL(props.src, window.location.origin);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+});
+watch(
+  () => props.src,
+  () => {
+    failed.value = false;
+  },
+);
+</script>
+<template>
+  <div class="product-image" :class="`theme-${categoryTheme(category || '')}`">
+    <img
+      v-if="safeSource && !failed"
+      :src="safeSource"
+      :alt="name"
+      :loading="eager ? 'eager' : 'lazy'"
+      @error="failed = true"
+    />
+    <div
+      v-else
+      class="image-fallback"
+      role="img"
+      :aria-label="`${name}: illustrative placeholder, not a product photograph`"
+    >
+      <span class="artwork-orbit"></span
+      ><CategoryArtwork :name="name" :category="category" />
+      <span class="artwork-caption">Illustrative artwork</span>
+    </div>
+  </div>
+</template>

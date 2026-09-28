@@ -1,0 +1,78 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { authStore } from "../stores/auth";
+import { ordersApi } from "../services/orders";
+import type { Order } from "../types/orders";
+
+const orders = ref<Order[]>([]);
+const loading = ref(true);
+const error = ref("");
+
+async function loadOrders() {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await ordersApi.list(token);
+    orders.value = response.data ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load orders.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+function date(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+onMounted(loadOrders);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <div class="commerce-heading">
+      <span>YOUR PURCHASES</span>
+      <h1>Orders</h1>
+      <p>View your NexaMarket order history and order details.</p>
+    </div>
+
+    <p v-if="loading">Loading orders...</p>
+    <p v-else-if="error" class="commerce-error" role="alert">{{ error }}</p>
+
+    <div v-else-if="!orders.length" class="commerce-empty">
+      <h2>No orders yet</h2>
+      <p>Your completed simulated checkouts will appear here.</p>
+      <RouterLink to="/#catalogue">Explore products</RouterLink>
+    </div>
+
+    <section v-else class="commerce-list">
+      <RouterLink
+        v-for="order in orders"
+        :key="order.id"
+        :to="`/orders/${order.id}`"
+        class="commerce-item"
+      >
+        <div>
+          <small>ORDER</small>
+          <strong>#{{ order.id.slice(0, 8).toUpperCase() }}</strong>
+          <p>{{ date(order.createdAt) }}</p>
+        </div>
+        <div>
+          <small>STATUS</small>
+          <strong>{{ order.status }}</strong>
+        </div>
+        <div>
+          <small>TOTAL</small>
+          <strong>£{{ Number(order.totalAmount).toFixed(2) }}</strong>
+        </div>
+        <span>View order →</span>
+      </RouterLink>
+    </section>
+  </main>
+</template>

@@ -1,0 +1,754 @@
+<script setup lang="ts">
+import {
+  computed,
+  onMounted,
+  ref,
+} from "vue";
+import { RouterLink, useRouter } from "vue-router";
+import { authStore } from "../stores/auth";
+import { adminApi } from "../services/admin";
+import type {
+  AdminProduct,
+  AdminSeller,
+  AdminStats,
+  AdminUser,
+} from "../types/admin";
+
+const router = useRouter();
+
+function logout(): void {
+  authStore.logout();
+  void router.push("/auth");
+}
+
+type Tab =
+  | "overview"
+  | "users"
+  | "sellers"
+  | "products";
+
+const tab = ref<Tab>("overview");
+const loading = ref(true);
+const error = ref("");
+const notice = ref("");
+
+const stats = ref<AdminStats | null>(null);
+const users = ref<AdminUser[]>([]);
+const sellers = ref<AdminSeller[]>([]);
+const products = ref<AdminProduct[]>([]);
+
+const userSearch = ref("");
+const sellerSearch = ref("");
+const productSearch = ref("");
+
+const money = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+});
+
+const filteredUsers = computed(() => {
+  const q = userSearch.value.trim().toLowerCase();
+
+  if (!q) return users.value;
+
+  return users.value.filter((user) =>
+    [
+      user.email,
+      user.firstName,
+      user.lastName,
+      user.role,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(q),
+  );
+});
+
+const filteredSellers = computed(() => {
+  const q = sellerSearch.value.trim().toLowerCase();
+
+  if (!q) return sellers.value;
+
+  return sellers.value.filter((seller) =>
+    [
+      seller.storeName,
+      seller.email,
+      seller.firstName,
+      seller.lastName,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(q),
+  );
+});
+
+const filteredProducts = computed(() => {
+  const q = productSearch.value.trim().toLowerCase();
+
+  if (!q) return products.value;
+
+  return products.value.filter((product) =>
+    [
+      product.name,
+      product.category.name,
+      product.seller.store_name,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(q),
+  );
+});
+
+function formatMoney(value: string | number): string {
+  const number = Number(value);
+  return money.format(Number.isFinite(number) ? number : 0);
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function initials(
+  firstName: string,
+  lastName: string,
+): string {
+  return `${firstName.charAt(0)}${lastName.charAt(0)}`
+    .toUpperCase();
+}
+
+function roleClass(role: string): string {
+  return `admin-role-${role.toLowerCase()}`;
+}
+
+async function load(): Promise<void> {
+  loading.value = true;
+  error.value = "";
+
+  try {
+    const [
+      statData,
+      userData,
+      sellerData,
+      productData,
+    ] = await Promise.all([
+      adminApi.stats(),
+      adminApi.users(),
+      adminApi.sellers(),
+      adminApi.products(),
+    ]);
+
+    stats.value = statData;
+    users.value = userData;
+    sellers.value = sellerData;
+    products.value = productData;
+  } catch (caught) {
+    error.value =
+      caught instanceof Error
+        ? caught.message
+        : "Admin dashboard could not be loaded.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function moderate(
+  product: AdminProduct,
+  isActive: boolean,
+): Promise<void> {
+  error.value = "";
+  notice.value = "";
+
+  const action = isActive ? "activate" : "deactivate";
+
+  if (
+    !window.confirm(
+      `${action.charAt(0).toUpperCase() + action.slice(1)} "${product.name}"?`,
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await adminApi.moderateProduct(
+      product.id,
+      isActive,
+    );
+
+    notice.value =
+      `Product ${isActive ? "activated" : "deactivated"}.`;
+
+    await load();
+    tab.value = "products";
+  } catch (caught) {
+    error.value =
+      caught instanceof Error
+        ? caught.message
+        : "Product moderation failed.";
+  }
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <main class="admin-shell">
+    <section class="admin-hero">
+      <div>
+        <span class="admin-eyebrow">
+          NEXAMARKET ADMINISTRATION
+        </span>
+
+        <h1>Marketplace control centre.</h1>
+
+        <p>
+          Operational visibility across customers,
+          sellers, catalogue activity and marketplace
+          orders using live NexaMarket data.
+        </p>
+      </div>
+
+      <div class="admin-hero-actions">
+        <RouterLink to="/">
+          View marketplace
+        </RouterLink>
+
+        <RouterLink to="/analytics">
+          Analytics
+        </RouterLink>
+
+        <button type="button" class="admin-signout" @click="logout">
+          Sign out
+        </button>
+      </div>
+    </section>
+
+    <section v-if="error || notice" class="admin-alerts">
+      <p v-if="error" class="admin-error">
+        {{ error }}
+      </p>
+
+      <p v-if="notice" class="admin-success">
+        {{ notice }}
+      </p>
+    </section>
+
+    <div v-if="loading" class="admin-loading">
+      <div v-for="n in 4" :key="n"></div>
+    </div>
+
+    <template v-else>
+      <nav class="admin-tabs">
+        <button
+          :class="{ active: tab === 'overview' }"
+          @click="tab = 'overview'"
+        >
+          Overview
+        </button>
+
+        <button
+          :class="{ active: tab === 'users' }"
+          @click="tab = 'users'"
+        >
+          Users
+          <span>{{ users.length }}</span>
+        </button>
+
+        <button
+          :class="{ active: tab === 'sellers' }"
+          @click="tab = 'sellers'"
+        >
+          Sellers
+          <span>{{ sellers.length }}</span>
+        </button>
+
+        <button
+          :class="{ active: tab === 'products' }"
+          @click="tab = 'products'"
+        >
+          Products
+          <span>{{ stats?.totalProducts ?? 0 }}</span>
+        </button>
+      </nav>
+
+      <section
+        v-if="tab === 'overview'"
+        class="admin-overview"
+      >
+        <div class="admin-metrics">
+          <article class="admin-metric admin-metric-featured">
+            <span>Marketplace order value</span>
+            <strong>
+              {{ formatMoney(stats?.totalRevenue ?? 0) }}
+            </strong>
+            <small>
+              Excludes cancelled orders
+            </small>
+          </article>
+
+          <article>
+            <span>Total users</span>
+            <strong>{{ stats?.totalUsers ?? 0 }}</strong>
+            <small>
+              {{ stats?.customers ?? 0 }} customers
+            </small>
+          </article>
+
+          <article>
+            <span>Sellers</span>
+            <strong>{{ stats?.sellers ?? 0 }}</strong>
+            <small>
+              Registered marketplace sellers
+            </small>
+          </article>
+
+          <article>
+            <span>Products</span>
+            <strong>{{ stats?.totalProducts ?? 0 }}</strong>
+            <small>
+              {{ stats?.activeProducts ?? 0 }} active
+            </small>
+          </article>
+        </div>
+
+        <div class="admin-secondary-metrics">
+          <article>
+            <div class="admin-icon">O</div>
+            <div>
+              <span>Total orders</span>
+              <strong>{{ stats?.totalOrders ?? 0 }}</strong>
+            </div>
+          </article>
+
+          <article>
+            <div class="admin-icon">P</div>
+            <div>
+              <span>Pending orders</span>
+              <strong>{{ stats?.pendingOrders ?? 0 }}</strong>
+            </div>
+          </article>
+
+          <article>
+            <div class="admin-icon">C</div>
+            <div>
+              <span>Completed orders</span>
+              <strong>{{ stats?.completedOrders ?? 0 }}</strong>
+            </div>
+          </article>
+
+          <article>
+            <div class="admin-icon">A</div>
+            <div>
+              <span>Administrators</span>
+              <strong>{{ stats?.admins ?? 0 }}</strong>
+            </div>
+          </article>
+        </div>
+
+        <div class="admin-grid">
+          <article class="admin-panel">
+            <header>
+              <div>
+                <span>LATEST ACCOUNTS</span>
+                <h2>Recent users</h2>
+              </div>
+
+              <button @click="tab = 'users'">
+                View all
+              </button>
+            </header>
+
+            <div class="admin-user-list">
+              <div
+                v-for="user in users.slice(0, 6)"
+                :key="user.id"
+                class="admin-user-row"
+              >
+                <div class="admin-avatar">
+                  {{ initials(user.firstName, user.lastName) }}
+                </div>
+
+                <div class="admin-user-main">
+                  <strong>
+                    {{ user.firstName }} {{ user.lastName }}
+                  </strong>
+                  <span>{{ user.email }}</span>
+                </div>
+
+                <span
+                  class="admin-role"
+                  :class="roleClass(user.role)"
+                >
+                  {{ user.role }}
+                </span>
+              </div>
+            </div>
+          </article>
+
+          <article class="admin-panel">
+            <header>
+              <div>
+                <span>MARKETPLACE</span>
+                <h2>Seller directory</h2>
+              </div>
+
+              <button @click="tab = 'sellers'">
+                View all
+              </button>
+            </header>
+
+            <div class="admin-store-list">
+              <div
+                v-for="seller in sellers.slice(0, 6)"
+                :key="seller.id"
+              >
+                <div class="admin-store-icon">
+                  {{ seller.storeName.charAt(0).toUpperCase() }}
+                </div>
+
+                <div>
+                  <strong>{{ seller.storeName }}</strong>
+                  <span>{{ seller.email }}</span>
+                </div>
+              </div>
+
+              <p v-if="!sellers.length" class="admin-empty">
+                No sellers registered.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section
+        v-if="tab === 'users'"
+        class="admin-panel admin-full-panel"
+      >
+        <header class="admin-table-header">
+          <div>
+            <span>ACCOUNT DIRECTORY</span>
+            <h2>Users</h2>
+          </div>
+
+          <input
+            v-model="userSearch"
+            type="search"
+            placeholder="Search users..."
+          />
+        </header>
+
+        <div class="admin-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Joined</th>
+                <th>ID</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr
+                v-for="user in filteredUsers"
+                :key="user.id"
+              >
+                <td>
+                  <div class="admin-table-user">
+                    <div class="admin-avatar">
+                      {{ initials(user.firstName, user.lastName) }}
+                    </div>
+
+                    <div>
+                      <strong>
+                        {{ user.firstName }} {{ user.lastName }}
+                      </strong>
+                      <span>{{ user.email }}</span>
+                    </div>
+                  </div>
+                </td>
+
+                <td>
+                  <span
+                    class="admin-role"
+                    :class="roleClass(user.role)"
+                  >
+                    {{ user.role }}
+                  </span>
+                </td>
+
+                <td>{{ formatDate(user.createdAt) }}</td>
+
+                <td>
+                  <code>{{ user.id.slice(0, 8) }}</code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p
+          v-if="!filteredUsers.length"
+          class="admin-empty"
+        >
+          No users match this search.
+        </p>
+      </section>
+
+      <section
+        v-if="tab === 'sellers'"
+        class="admin-panel admin-full-panel"
+      >
+        <header class="admin-table-header">
+          <div>
+            <span>SELLER DIRECTORY</span>
+            <h2>Marketplace sellers</h2>
+          </div>
+
+          <input
+            v-model="sellerSearch"
+            type="search"
+            placeholder="Search sellers..."
+          />
+        </header>
+
+        <div class="admin-seller-grid">
+          <article
+            v-for="seller in filteredSellers"
+            :key="seller.id"
+            class="admin-seller-card"
+          >
+            <div class="admin-store-icon admin-store-large">
+              {{ seller.storeName.charAt(0).toUpperCase() }}
+            </div>
+
+            <span class="admin-card-label">
+              SELLER
+            </span>
+
+            <h3>{{ seller.storeName }}</h3>
+
+            <p>
+              {{
+                seller.storeDescription ||
+                "No store description provided."
+              }}
+            </p>
+
+            <div class="admin-seller-owner">
+              <span>Owner</span>
+              <strong>
+                {{ seller.firstName }} {{ seller.lastName }}
+              </strong>
+              <small>{{ seller.email }}</small>
+            </div>
+
+            <footer>
+              Joined {{ formatDate(seller.createdAt) }}
+            </footer>
+          </article>
+        </div>
+
+        <p
+          v-if="!filteredSellers.length"
+          class="admin-empty"
+        >
+          No sellers match this search.
+        </p>
+      </section>
+
+      <section
+        v-if="tab === 'products'"
+        class="admin-panel admin-full-panel"
+      >
+        <header class="admin-table-header">
+          <div>
+            <span>CATALOGUE MODERATION</span>
+            <h2>Active catalogue products</h2>
+          </div>
+
+          <input
+            v-model="productSearch"
+            type="search"
+            placeholder="Search products..."
+          />
+        </header>
+
+        <p class="admin-info">
+          This view uses the public active-product catalogue.
+          Deactivated products are removed from the public catalogue
+          and can be restored through backend moderation tooling.
+        </p>
+
+        <div class="admin-product-grid">
+          <article
+            v-for="product in filteredProducts"
+            :key="product.id"
+            class="admin-product-card"
+          >
+            <div class="admin-product-image">
+              <img
+                v-if="product.image_url"
+                :src="product.image_url"
+                :alt="product.name"
+              />
+              <span v-else>
+                {{ product.name.charAt(0) }}
+              </span>
+            </div>
+
+            <div class="admin-product-content">
+              <span>
+                {{ product.category.name }}
+              </span>
+
+              <h3>{{ product.name }}</h3>
+
+              <p>
+                Seller: {{ product.seller.store_name }}
+              </p>
+
+              <div class="admin-product-meta">
+                <strong>
+                  {{ formatMoney(product.price) }}
+                </strong>
+
+                <small>
+                  {{ product.available_quantity }} in stock
+                </small>
+              </div>
+
+              <button
+                class="admin-deactivate"
+                @click="moderate(product, false)"
+              >
+                Deactivate product
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <p
+          v-if="!filteredProducts.length"
+          class="admin-empty"
+        >
+          No products match this search.
+        </p>
+      </section>
+    </template>
+  </main>
+</template>
+
+<style scoped>
+.admin-shell{max-width:1440px;margin:0 auto;padding:46px 32px 90px;color:#173f32}
+.admin-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:30px;padding:46px;border-radius:30px;background:#172f27;color:#fff}
+.admin-eyebrow,.admin-panel header>div>span,.admin-card-label{font-size:10px;font-weight:900;letter-spacing:.15em;color:#a9c0b5}
+.admin-hero h1{max-width:760px;margin:12px 0 14px;font-size:clamp(38px,5vw,68px);line-height:.98;letter-spacing:-.05em}
+.admin-hero p{max-width:650px;margin:0;color:#c4d1ca;line-height:1.7}
+.admin-market-link{padding:14px 20px;border-radius:999px;background:#fff;color:#173f32;text-decoration:none;font-weight:850;white-space:nowrap}
+.admin-alerts{margin-top:18px}.admin-error,.admin-success{padding:14px 17px;border-radius:13px;font-weight:750}.admin-error{background:#fff0ee;color:#a23f35}.admin-success{background:#eaf7ed;color:#276842}
+.admin-loading,.admin-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px}.admin-loading div{height:155px;border-radius:22px;background:#eef2ef;animation:adminPulse 1.2s infinite alternate}@keyframes adminPulse{to{opacity:.45}}
+.admin-tabs{display:flex;width:max-content;max-width:100%;overflow:auto;gap:6px;margin:26px 0 19px;padding:6px;border:1px solid #e0e6e1;border-radius:999px}.admin-tabs button{display:flex;align-items:center;gap:8px;padding:11px 18px;border:0;border-radius:999px;background:transparent;color:#66736d;font:inherit;font-weight:800;cursor:pointer}.admin-tabs button.active{background:#173f32;color:#fff}.admin-tabs span{display:grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.15);font-size:11px}
+.admin-metrics{margin-top:0}.admin-metrics article{padding:25px;border:1px solid #e1e6e2;border-radius:22px;background:#fff}.admin-metrics .admin-metric-featured{background:#edf4ee}.admin-metrics span,.admin-secondary-metrics span{display:block;color:#7c8982;font-size:12px;font-weight:750}.admin-metrics strong{display:block;margin:9px 0 5px;font-size:31px;letter-spacing:-.04em}.admin-metrics small{color:#8e9893}
+.admin-secondary-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:13px}.admin-secondary-metrics article{display:flex;align-items:center;gap:13px;padding:17px;border:1px solid #e4e8e4;border-radius:18px}.admin-secondary-metrics strong{display:block;margin-top:3px;font-size:20px}.admin-icon{display:grid;place-items:center;width:39px;height:39px;border-radius:12px;background:#edf4ee;font-size:12px;font-weight:900}
+.admin-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:17px;margin-top:17px}.admin-panel{padding:27px;border:1px solid #e2e7e3;border-radius:24px;background:#fff}.admin-panel header{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:20px}.admin-panel header h2{margin:5px 0 0;font-size:24px}.admin-panel header button{border:0;background:transparent;color:#28634d;font-weight:800;cursor:pointer}
+.admin-user-row{display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid #eef1ee}.admin-avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#edf3ee;color:#285844;font-size:12px;font-weight:900}.admin-user-main,.admin-table-user>div:last-child{display:flex;flex-direction:column;gap:3px}.admin-user-main span,.admin-table-user span{color:#89938e;font-size:12px}.admin-role{padding:6px 9px;border-radius:999px;font-size:9px;font-weight:900;letter-spacing:.06em}.admin-role-customer{background:#edf3ff;color:#3b6091}.admin-role-seller{background:#edf7ee;color:#33704a}.admin-role-admin{background:#f2ecff;color:#674c91}
+.admin-store-list>div{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid #eef1ee}.admin-store-list>div>div:last-child{display:flex;flex-direction:column;gap:3px}.admin-store-list span{color:#8b9690;font-size:12px}.admin-store-icon{display:grid;place-items:center;flex:0 0 auto;width:42px;height:42px;border-radius:13px;background:#173f32;color:#fff;font-weight:900}
+.admin-full-panel{margin-top:0}.admin-table-header input{width:min(310px,45vw);padding:12px 15px;border:1px solid #dce3dd;border-radius:999px;font:inherit;outline:none}.admin-table-header input:focus{border-color:#719984}.admin-table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}th{text-align:left;padding:12px;color:#849089;font-size:10px;letter-spacing:.08em}td{padding:14px 12px;border-top:1px solid #edf0ed;font-size:13px}.admin-table-user{display:flex;align-items:center;gap:11px}code{padding:5px 7px;border-radius:7px;background:#f1f4f1}
+.admin-seller-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.admin-seller-card{padding:23px;border:1px solid #e2e7e3;border-radius:20px}.admin-store-large{width:52px;height:52px;margin-bottom:20px}.admin-seller-card .admin-card-label{color:#6c7e75}.admin-seller-card h3{margin:6px 0 9px;font-size:20px}.admin-seller-card>p{min-height:44px;color:#7b8781;line-height:1.55;font-size:13px}.admin-seller-owner{display:flex;flex-direction:column;gap:3px;margin-top:19px;padding-top:17px;border-top:1px solid #edf0ed}.admin-seller-owner span,.admin-seller-owner small{color:#8c9691;font-size:11px}.admin-seller-card footer{margin-top:17px;color:#929b96;font-size:11px}
+.admin-info{margin:-5px 0 22px;padding:12px 14px;border-radius:12px;background:#f4f7f4;color:#6e7b74;font-size:12px;line-height:1.5}.admin-product-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}.admin-product-card{overflow:hidden;border:1px solid #e2e7e3;border-radius:20px}.admin-product-image{display:grid;place-items:center;height:180px;background:#f4f6f3;overflow:hidden;font-size:25px;font-weight:900}.admin-product-image img{width:100%;height:100%;object-fit:contain}.admin-product-content{padding:17px}.admin-product-content>span{color:#77867e;font-size:10px;font-weight:850;text-transform:uppercase}.admin-product-content h3{margin:6px 0;font-size:16px}.admin-product-content p{margin:0;color:#89938e;font-size:11px}.admin-product-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px}.admin-product-meta small{color:#7e8a84}.admin-deactivate{width:100%;margin-top:14px;padding:10px;border:1px solid #ead7d4;border-radius:10px;background:#fff;color:#99453d;font-weight:800;cursor:pointer}.admin-deactivate:hover{background:#fff1ef}
+.admin-empty{padding:45px 10px;text-align:center;color:#89938e}
+@media(max-width:1050px){.admin-metrics,.admin-secondary-metrics{grid-template-columns:repeat(2,1fr)}.admin-grid{grid-template-columns:1fr}.admin-seller-grid{grid-template-columns:repeat(2,1fr)}.admin-product-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:720px){.admin-shell{padding:25px 16px 70px}.admin-hero{align-items:flex-start;flex-direction:column;padding:29px 22px}.admin-metrics,.admin-secondary-metrics{grid-template-columns:1fr 1fr;gap:9px}.admin-metrics article{padding:18px}.admin-metrics strong{font-size:24px}.admin-panel{padding:18px}.admin-table-header{align-items:flex-start!important;flex-direction:column}.admin-table-header input{width:100%;box-sizing:border-box}.admin-seller-grid,.admin-product-grid{grid-template-columns:1fr}.admin-market-link{width:100%;box-sizing:border-box;text-align:center}}
+
+.admin-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-hero-actions a,
+.admin-hero-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .09);
+  color: inherit;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .18s ease, background .18s ease;
+}
+
+.admin-hero-actions a:hover,
+.admin-hero-actions button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, .16);
+}
+
+.admin-signout {
+  appearance: none;
+}
+
+@media (max-width: 760px) {
+  .admin-hero-actions {
+    justify-content: flex-start;
+  }
+}
+
+
+.admin-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-hero-actions a,
+.admin-hero-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .09);
+  color: inherit;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .18s ease, background .18s ease;
+}
+
+.admin-hero-actions a:hover,
+.admin-hero-actions button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, .16);
+}
+
+.admin-signout {
+  appearance: none;
+}
+
+@media (max-width: 760px) {
+  .admin-hero-actions {
+    justify-content: flex-start;
+  }
+}
+
+</style>

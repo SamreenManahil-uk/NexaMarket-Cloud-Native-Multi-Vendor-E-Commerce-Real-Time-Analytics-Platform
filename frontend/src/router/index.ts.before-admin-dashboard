@@ -1,0 +1,194 @@
+import { createRouter, createWebHistory } from "vue-router";
+import CatalogueView from "../views/CatalogueView.vue";
+import ProductView from "../views/ProductView.vue";
+import AuthView from "../views/AuthView.vue";
+import AccountView from "../views/AccountView.vue";
+import CartView from "../views/CartView.vue";
+import CheckoutView from "../views/CheckoutView.vue";
+import WishlistView from "../views/WishlistView.vue";
+import NotFoundView from "../views/NotFoundView.vue";
+import SellerDashboardView from "../views/SellerDashboardView.vue";
+import OrdersView from "../views/OrdersView.vue";
+import OrderDetailView from "../views/OrderDetailView.vue";
+import OrderConfirmationView from "../views/OrderConfirmationView.vue";
+import { authStore } from "../stores/auth";
+import { trackClickstream } from "../services/clickstream";
+
+export const VerifyEmailView = () =>
+  import("../views/VerifyEmailView.vue");
+
+const ForgotPasswordView = () =>
+  import("../views/ForgotPasswordView.vue");
+
+const ResetPasswordView = () =>
+  import("../views/ResetPasswordView.vue");
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+
+  routes: [
+    {
+      path: "/verify-email",
+      name: "verify-email",
+      component: VerifyEmailView,
+    },
+    {
+      path: "/forgot-password",
+      name: "forgot-password",
+      component: ForgotPasswordView,
+    },
+    {
+      path: "/reset-password",
+      name: "reset-password",
+      component: ResetPasswordView,
+    },
+    {
+      path: "/nexa-ai",
+      name: "nexa-ai",
+      component: () => import("../views/NexaAiView.vue"),
+    },
+    {
+      path: "/",
+      name: "catalogue",
+      component: CatalogueView,
+    },
+    {
+      path: "/products/:id",
+      name: "product",
+      component: ProductView,
+    },
+    {
+      path: "/auth",
+      name: "auth",
+      component: AuthView,
+      meta: { guestOnly: true },
+    },
+    {
+      path: "/account",
+      name: "account",
+      component: AccountView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/seller",
+      name: "seller-dashboard",
+      component: SellerDashboardView,
+      meta: {
+        requiresAuth: true,
+        roles: ["SELLER"],
+      },
+    },
+    {
+      path: "/cart",
+      name: "cart",
+      component: CartView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/checkout",
+      name: "checkout",
+      component: CheckoutView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/wishlist",
+      name: "wishlist",
+      component: WishlistView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/orders",
+      name: "orders",
+      component: OrdersView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/orders/:id",
+      name: "order-detail",
+      component: OrderDetailView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/order-confirmation/:id",
+      name: "order-confirmation",
+      component: OrderConfirmationView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      component: NotFoundView,
+    },
+  ],
+
+  scrollBehavior: (to, from, savedPosition) => {
+    if (savedPosition) return savedPosition;
+
+    const headerOffset =
+      (document
+        .querySelector(".site-header")
+        ?.getBoundingClientRect().height || 136) + 24;
+
+    if (to.hash) {
+      return {
+        el: to.hash,
+        top: headerOffset,
+      };
+    }
+
+    if (
+      to.path === "/" &&
+      from.path === "/" &&
+      to.query.page !== from.query.page
+    ) {
+      return {
+        el: "#catalogue",
+        top: headerOffset,
+      };
+    }
+
+    if (to.path === from.path) return false;
+
+    return { top: 0 };
+  },
+});
+
+router.beforeEach(async (to) => {
+  if (!authStore.state.ready) {
+    await authStore.initialise();
+  }
+
+  if (to.meta.requiresAuth && !authStore.isAuthenticated.value) {
+    return {
+      path: "/auth",
+      query: {
+        redirect: to.fullPath,
+      },
+    };
+  }
+
+  const roles = Array.isArray(to.meta.roles)
+    ? to.meta.roles
+    : [];
+
+  if (
+    roles.length > 0 &&
+    authStore.state.user &&
+    !roles.includes(authStore.state.user.role)
+  ) {
+    return "/account";
+  }
+
+  if (to.meta.guestOnly && authStore.isAuthenticated.value) {
+    return "/account";
+  }
+
+  return true;
+});
+
+router.afterEach((to) => {
+  void trackClickstream("PAGE_VIEW", {
+    path: to.fullPath,
+  });
+});
+
+export { router };

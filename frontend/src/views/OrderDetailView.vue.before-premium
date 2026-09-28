@@ -1,0 +1,64 @@
+<script setup lang="ts">
+import { onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
+import { authStore } from "../stores/auth";
+import { ordersApi } from "../services/orders";
+import type { Order } from "../types/orders";
+
+const route = useRoute();
+const order = ref<Order | null>(null);
+const loading = ref(true);
+const error = ref("");
+
+async function loadOrder() {
+  const token = authStore.state.token;
+  if (!token) return;
+
+  try {
+    loading.value = true;
+    error.value = "";
+    const response = await ordersApi.get(token, String(route.params.orderId));
+    order.value = response.data;
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Unable to load order.";
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadOrder);
+</script>
+
+<template>
+  <main class="commerce-page container">
+    <p v-if="loading">Loading order...</p>
+    <p v-else-if="error" class="commerce-error" role="alert">{{ error }}</p>
+
+    <template v-else-if="order">
+      <div class="commerce-heading">
+        <span>ORDER DETAILS</span>
+        <h1>Order #{{ order.id.slice(0, 8).toUpperCase() }}</h1>
+        <p>Status: <strong>{{ order.status }}</strong></p>
+      </div>
+
+      <section class="commerce-list">
+        <article v-for="item in order.items" :key="item.id" class="commerce-item">
+          <div>
+            <strong>{{ item.productName }}</strong>
+            <p>Quantity: {{ item.quantity }}</p>
+            <small>£{{ Number(item.unitPrice).toFixed(2) }} each</small>
+          </div>
+          <strong>£{{ Number(item.lineTotal).toFixed(2) }}</strong>
+        </article>
+      </section>
+
+      <aside class="commerce-summary">
+        <span>ORDER TOTAL</span>
+        <strong>£{{ Number(order.totalAmount).toFixed(2) }}</strong>
+        <p>This portfolio checkout is simulated. No real payment was processed.</p>
+      </aside>
+
+      <RouterLink to="/orders">← Back to orders</RouterLink>
+    </template>
+  </main>
+</template>
